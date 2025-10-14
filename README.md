@@ -1,6 +1,6 @@
 # zbus_polkit
 
-[![CI Pipeline Status](https://github.com/dbus2/zbus/actions/workflows/rust.yml/badge.svg)](https://github.com/dbus2/zbus/actions/workflows/rust.yml)
+[![CI Pipeline Status](https://github.com/z-galaxy/zbus/actions/workflows/rust.yml/badge.svg)](https://github.com/z-galaxy/zbus/actions/workflows/rust.yml)
 [![Documentation](https://docs.rs/zbus_polkit/badge.svg)](https://docs.rs/zbus_polkit/)
 [![crates.io](https://img.shields.io/crates/v/zbus_polkit)](https://crates.io/crates/zbus_polkit)
 

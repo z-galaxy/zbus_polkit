@@ -9,7 +9,7 @@ edition = "2021"
 rust-version = "1.64"
 
 description = "PolicyKit binding"
-repository = "https://github.com/dbus2/zbus_polkit/"
+repository = "https://github.com/z-galaxy/zbus_polkit/"
 keywords = ["D-Bus", "DBus", "IPC"]
 license = "MIT"
 categories = ["os::unix-apis"]
