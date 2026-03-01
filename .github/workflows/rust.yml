@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [fmt, clippy]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [fmt, clippy]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
@@ -45,7 +45,7 @@ jobs:
       RUSTFLAGS: -D warnings
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
@@ -59,7 +59,7 @@ jobs:
       RUSTFLAGS: -D warnings
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
