@@ -5,6 +5,8 @@
 #![doc = include_str!("../README.md")]
 
 mod error;
+mod identify;
 pub use error::*;
+pub use identify::*;
 
 pub mod policykit1;

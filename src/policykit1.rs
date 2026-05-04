@@ -10,6 +10,8 @@ use zbus::{
     zvariant::{OwnedValue, Type, Value},
 };
 
+use crate::identify::Identity;
+
 use crate::Error;
 
 /// Flags used in the CheckAuthorization() method.
@@ -93,22 +95,7 @@ pub struct TemporaryAuthorization {
 
 assert_impl_all!(TemporaryAuthorization: Send, Sync, Unpin);
 
-/// This struct describes identities such as UNIX users and UNIX groups. It is typically used to
-/// check if a given process is authorized for an action.
-///
-/// The following kinds of identities are known:
-///
-/// * Unix User. `identity_kind` should be set to `unix-user` with key uid (of type uint32).
-///
-/// * Unix Group. `identity_kind` should be set to `unix-group` with key gid (of type uint32).
-#[derive(Debug, Type, Serialize)]
-pub struct Identity<'a> {
-    pub identity_kind: &'a str,
 
-    pub identity_details: &'a HashMap<&'a str, Value<'a>>,
-}
-
-assert_impl_all!(Identity<'_>: Send, Sync, Unpin);
 
 fn pid_start_time(pid: u32) -> Result<u64, Error> {
     let fname = format!("/proc/{pid}/stat");
@@ -411,7 +398,7 @@ pub trait Authority {
     ) -> zbus::Result<()>;
 
     /// Like `RegisterAuthenticationAgent` but takes additional options. If the option fallback (of
-    /// type Boolean) is TRUE, then the authentcation agent will only be used as a fallback, e.g. if
+    /// type Boolean) is TRUE, then the authentication agent will only be used as a fallback, e.g. if
     /// another agent (without the fallback option set TRUE) is available, it will be used instead.
     fn register_authentication_agent_with_options(
         &self,

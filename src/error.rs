@@ -19,6 +19,16 @@ pub enum Error {
 
     /// Missing sender header in the message.
     MissingSender,
+
+    /// Unknown session
+    SessionUnknown(String),
+
+    /// The session is unmatched with the identify
+    SessionUnmatch,
+
+    /// Inner error during TryInto, for example, some key is missing in identify_details
+    /// Or the try_into of [zbus::zvariant::Value] failed
+    SessionInnerError,
 }
 
 assert_impl_all!(Error: Send, Sync, Unpin);
@@ -42,6 +52,9 @@ impl std::error::Error for Error {
             Error::ParseInt(e) => Some(e),
             Error::BadSender(e) => Some(e),
             Error::MissingSender => None,
+            Error::SessionUnknown(_) => None,
+            Error::SessionUnmatch => None,
+            Error::SessionInnerError => None,
         }
     }
 }
@@ -53,6 +66,9 @@ impl Display for Error {
             Error::ParseInt(e) => e.fmt(f),
             Error::BadSender(e) => e.fmt(f),
             Error::MissingSender => write!(f, "sender header field missing in the message",),
+            Error::SessionUnknown(kind) => write!(f, "unkownn session: {}", kind),
+            Error::SessionUnmatch => write!(f, "session unmatched"),
+            Error::SessionInnerError => write!(f, "session inner error"),
         }
     }
 }
