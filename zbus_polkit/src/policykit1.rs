@@ -1,6 +1,6 @@
 use std::{collections::HashMap, io::BufRead};
 
-use enumflags2::{bitflags, BitFlags};
+use enumflags2::{BitFlags, bitflags};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use static_assertions::assert_impl_all;
@@ -94,8 +94,6 @@ pub struct TemporaryAuthorization {
 }
 
 assert_impl_all!(TemporaryAuthorization: Send, Sync, Unpin);
-
-
 
 fn pid_start_time(pid: u32) -> Result<u64, Error> {
     let fname = format!("/proc/{pid}/stat");

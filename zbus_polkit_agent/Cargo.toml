@@ -1,0 +1,22 @@
+[package]
+name = "zbus_polkit_agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+keywords.workspace = true
+description = "polkit-agent binding for zbus"
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+nix.workspace = true
+
+serde = { version = "1.0.228", features = ["derive"] }
+systemd = "0.10.1"
+thiserror.workspace = true
+zbus.workspace = true
+zbus_polkit.workspace = true
+
+[dev-dependencies]
+rpassword = "7.5.2"
+tokio.workspace = true

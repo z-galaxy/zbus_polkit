@@ -1,0 +1,31 @@
+[package]
+name = "zbus_polkit"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+description = "PolicyKit binding"
+repository.workspace = true
+keywords.workspace = true
+license.workspace = true
+categories.workspace = true
+readme.workspace = true
+
+[features]
+default = ["zbus/async-io", "blocking-api"]
+tokio = ["zbus/tokio"]
+blocking-api = ["zbus/blocking-api"]
+
+[dependencies]
+zbus.workspace = true
+serde = { version = "1.0.200", features = ["derive"] }
+serde_repr = "0.1.19"
+enumflags2 = { version = "0.7.9", features = ["serde"] }
+static_assertions = "1.1.0"
+nix.workspace = true
+
+[dev-dependencies]
+byteorder.workspace = true
+tokio = { version = "1", features = ["full"] }
+rpassword = "7.5.2"
