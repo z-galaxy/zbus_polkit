@@ -11,12 +11,12 @@ repository.workspace = true
 [dependencies]
 nix.workspace = true
 
-serde = { version = "1.0.228", features = ["derive"] }
-systemd = "0.10.1"
+serde.workspace = true
+systemd.workspace = true
 thiserror.workspace = true
 zbus.workspace = true
 zbus_polkit.workspace = true
 
 [dev-dependencies]
-rpassword = "7.5.2"
+rpassword.workspace = true
 tokio.workspace = true

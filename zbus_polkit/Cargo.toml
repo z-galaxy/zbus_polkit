@@ -19,13 +19,12 @@ blocking-api = ["zbus/blocking-api"]
 
 [dependencies]
 zbus.workspace = true
-serde = { version = "1.0.200", features = ["derive"] }
+serde.workspace = true
 serde_repr = "0.1.19"
-enumflags2 = { version = "0.7.9", features = ["serde"] }
+enumflags2.workspace = true
 static_assertions = "1.1.0"
 nix.workspace = true
 
 [dev-dependencies]
 byteorder.workspace = true
-tokio = { version = "1", features = ["full"] }
-rpassword = "7.5.2"
+tokio.workspace = true

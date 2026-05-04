@@ -1252,7 +1252,6 @@ dependencies = [
  "byteorder",
  "enumflags2",
  "nix",
- "rpassword",
  "serde",
  "serde_repr",
  "static_assertions",
