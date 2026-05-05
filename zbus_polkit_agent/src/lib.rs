@@ -49,7 +49,7 @@ where
     State: 'static + Send + Sync,
 {
     struct Instance<State, Boot, Authenticate, CancelAuthentication> {
-        boot: Boot,
+        boot: Option<Boot>,
         authenticate: Authenticate,
         cancel_authentication: CancelAuthentication,
         _state: PhantomData<State>,
@@ -63,8 +63,8 @@ where
         State: 'static + Send + Sync,
     {
         type State = State;
-        fn boot(&self) -> Self::State {
-            self.boot.boot()
+        fn boot(&mut self) -> Self::State {
+            self.boot.take().expect("Only run once a time").boot()
         }
 
         fn authenticate<'a>(
@@ -93,7 +93,7 @@ where
     }
     PolkitAgentBuilder {
         agent: Instance {
-            boot,
+            boot: Some(boot),
             authenticate,
             cancel_authentication,
             _state: PhantomData,
@@ -110,7 +110,7 @@ where
     State: 'static + Send + Sync,
 {
     pub async fn connect(
-        self,
+        mut self,
         object_path: impl Into<Option<&str>>,
     ) -> Result<zbus::Connection, error::Error> {
         let agent = PolkitAgent {

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 pub trait PolkitCore: Sync + Send {
     type State;
-    fn boot(&self) -> Self::State;
+    fn boot(&mut self) -> Self::State;
     #[allow(clippy::too_many_arguments)]
     fn authenticate<'a>(
         &'a mut self,
@@ -134,13 +134,13 @@ where
 }
 
 pub trait Boot<State> {
-    fn boot(&self) -> State;
+    fn boot(self) -> State;
 }
 impl<F, State> Boot<State> for F
 where
-    F: Fn() -> State,
+    F: FnOnce() -> State,
 {
-    fn boot(&self) -> State {
+    fn boot(self) -> State {
         self()
     }
 }
