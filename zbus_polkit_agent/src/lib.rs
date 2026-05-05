@@ -11,6 +11,10 @@ use zbus_polkit::policykit1::AuthorityProxy;
 
 use crate::unixsession::UnixSession;
 
+pub mod reexport {
+    pub use zbus::Connection;
+}
+
 pub mod server {
     #[derive(Clone, Debug, zbus::DBusError)]
     #[zbus(prefix = "org.freedesktop.PolicyKit1.Error")]
