@@ -1,23 +1,27 @@
-use crate::{Error, Identity};
+use crate::Identity;
+use crate::server::Error;
 use std::collections::HashMap;
 
 pub trait PolkitCore: Sync + Send {
     type State;
     fn boot(&self) -> Self::State;
     #[allow(clippy::too_many_arguments)]
-    fn authenticate(
-        &mut self,
-        state: &mut Self::State,
-        action_id: &str,
-        message: &str,
-        icon_name: &str,
-        details: HashMap<&str, &str>,
-        identifies: Vec<Identity<'_>>,
-        cookie: &str,
-    ) -> Result<(), Error>;
+    fn authenticate<'a>(
+        &'a mut self,
+        state: &'a mut Self::State,
+        action_id: &'a str,
+        message: &'a str,
+        icon_name: &'a str,
+        details: HashMap<&'a str, &'a str>,
+        cookie: &'a str,
+        identifies: Vec<Identity<'a>>,
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 
-    fn cancel_authentication(&mut self, state: &mut Self::State, cookie: &str)
-    -> Result<(), Error>;
+    fn cancel_authentication<'a>(
+        &'a mut self,
+        state: &'a mut Self::State,
+        cookie: &'a str,
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 pub struct PolkitAgentBuilder<C: PolkitCore> {
@@ -34,7 +38,7 @@ impl<C: PolkitCore<State = State> + 'static, State> PolkitAgent<C, State>
 where
     State: 'static + Sync + Send,
 {
-    fn begin_authentication(
+    async fn begin_authentication(
         &mut self,
         action_id: &str,
         msg: &str,
@@ -43,70 +47,88 @@ where
         cookie: &str,
         identifies: Vec<Identity<'_>>,
     ) -> Result<(), Error> {
-        self.agent.authenticate(
-            &mut self.state,
-            action_id,
-            msg,
-            icon_name,
-            details,
-            identifies,
-            cookie,
-        )
+        self.agent
+            .authenticate(
+                &mut self.state,
+                action_id,
+                msg,
+                icon_name,
+                details,
+                cookie,
+                identifies,
+            )
+            .await
     }
-    fn cancel_authentication(&mut self, cookie: &str) -> Result<(), Error> {
-        self.agent.cancel_authentication(&mut self.state, cookie)
+    async fn cancel_authentication(&mut self, cookie: &str) -> Result<(), Error> {
+        self.agent
+            .cancel_authentication(&mut self.state, cookie)
+            .await
     }
 }
 
-pub trait Authenticate<State> {
+pub trait Authenticate<'a, State>
+where
+    State: 'a,
+{
+    type Future: Future<Output = Result<(), Error>> + Send;
     #[allow(clippy::too_many_arguments)]
     fn authenticate(
-        &self,
-        state: &mut State,
-        action_id: &str,
-        message: &str,
-        icon_name: &str,
-        details: HashMap<&str, &str>,
-        cookie: &str,
-        identifies: Vec<Identity<'_>>,
-    ) -> Result<(), Error>;
+        &'a mut self,
+        state: &'a mut State,
+        action_id: &'a str,
+        message: &'a str,
+        icon_name: &'a str,
+        details: HashMap<&'a str, &'a str>,
+        cookie: &'a str,
+        identifies: Vec<Identity<'a>>,
+    ) -> Self::Future;
 }
-impl<F, State> Authenticate<State> for F
+impl<'a, F, State, Fut> Authenticate<'a, State> for F
 where
     F: Fn(
-        &mut State,
-        &str,
-        &str,
-        &str,
-        HashMap<&str, &str>,
-        &str,
-        Vec<Identity<'_>>,
-    ) -> Result<(), Error>,
+        &'a mut State,
+        &'a str,
+        &'a str,
+        &'a str,
+        HashMap<&'a str, &'a str>,
+        &'a str,
+        Vec<Identity<'a>>,
+    ) -> Fut,
+    Fut: Future<Output = Result<(), Error>> + Send,
+    State: 'a,
 {
+    type Future = Fut;
     fn authenticate(
-        &self,
-        state: &mut State,
-        action_id: &str,
-        message: &str,
-        icon_name: &str,
-        details: HashMap<&str, &str>,
-        cookie: &str,
-        identifies: Vec<Identity<'_>>,
-    ) -> Result<(), Error> {
+        &'a mut self,
+        state: &'a mut State,
+        action_id: &'a str,
+        message: &'a str,
+        icon_name: &'a str,
+        details: HashMap<&'a str, &'a str>,
+        cookie: &'a str,
+        identifies: Vec<Identity<'a>>,
+    ) -> Self::Future {
         self(
             state, action_id, message, icon_name, details, cookie, identifies,
         )
     }
 }
-pub trait CancelAuthentication<State> {
-    fn cancel_authentication(&self, state: &mut State, cookie: &str) -> Result<(), Error>;
+pub trait CancelAuthentication<'a, State>
+where
+    State: 'a,
+{
+    type Future: Future<Output = Result<(), Error>> + Send;
+    fn cancel_authentication(&'a self, state: &'a mut State, cookie: &'a str) -> Self::Future;
 }
 
-impl<F, State> CancelAuthentication<State> for F
+impl<'a, F, State, Fut> CancelAuthentication<'a, State> for F
 where
-    F: Fn(&mut State, &str) -> Result<(), Error>,
+    Fut: Future<Output = Result<(), Error>> + Send,
+    F: Fn(&'a mut State, &'a str) -> Fut,
+    State: 'a,
 {
-    fn cancel_authentication(&self, state: &mut State, cookie: &str) -> Result<(), Error> {
+    type Future = Fut;
+    fn cancel_authentication(&'a self, state: &'a mut State, cookie: &'a str) -> Self::Future {
         self(state, cookie)
     }
 }

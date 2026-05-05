@@ -9,7 +9,7 @@ use zbus_polkit_agent::{
 };
 struct Agent;
 
-fn authenticate(
+async fn authenticate(
     _agent: &mut Agent,
     _action_id: &str,
     _msg: &str,
@@ -23,7 +23,7 @@ fn authenticate(
     let mut retry_count = 3;
     while retry_count >= 0 {
         while !session.is_complete() {
-            let message = session.dispatch()?;
+            let message = session.async_dispatch().await?;
             if let Message::Request { prompt, .. } = message {
                 let Ok(password) = prompt_password(format!("{} {prompt} ", session.user_name()))
                 else {
@@ -47,7 +47,7 @@ fn authenticate(
     Ok(())
 }
 
-fn cancel_authentication(_agent: &mut Agent, _cookie: &str) -> Result<(), Error> {
+async fn cancel_authentication(_agent: &mut Agent, _cookie: &str) -> Result<(), Error> {
     Ok(())
 }
 const OBJECT_PATH: &str = "/org/waycrate/PolicyKit1/AuthenticationAgent";

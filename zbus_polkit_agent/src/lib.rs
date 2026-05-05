@@ -4,7 +4,6 @@ mod unixsession;
 use std::{collections::HashMap, marker::PhantomData};
 use zbus::connection;
 pub use zbus_polkit::identify::*;
-
 mod interface;
 use interface::*;
 
@@ -23,6 +22,7 @@ pub mod server {
         NotAuthorized,
         CancellationIdNotUnique,
     }
+
     impl From<crate::error::Error> for Error {
         fn from(value: crate::error::Error) -> Self {
             Self::FailedWithReason(value.to_string())
@@ -44,8 +44,8 @@ pub fn polkit_agent_instance<Authenticate, CancelAuthentication, State, Boot>(
 ) -> PolkitAgentBuilder<impl PolkitCore<State = State>>
 where
     Boot: self::Boot<State> + Send + Sync,
-    Authenticate: self::Authenticate<State> + Send + Sync,
-    CancelAuthentication: self::CancelAuthentication<State> + Send + Sync,
+    Authenticate: for<'a> self::Authenticate<'a, State> + Send + Sync,
+    CancelAuthentication: for<'a> self::CancelAuthentication<'a, State> + Send + Sync,
     State: 'static + Send + Sync,
 {
     struct Instance<State, Boot, Authenticate, CancelAuthentication> {
@@ -58,30 +58,35 @@ where
         for Instance<State, Boot, Authenticate, CancelAuthentication>
     where
         Boot: self::Boot<State> + Sync + Send,
-        Authenticate: self::Authenticate<State> + Sync + Send,
-        CancelAuthentication: self::CancelAuthentication<State> + Send + Sync,
+        Authenticate: for<'a> self::Authenticate<'a, State> + Sync + Send,
+        CancelAuthentication: for<'a> self::CancelAuthentication<'a, State> + Send + Sync,
         State: 'static + Send + Sync,
     {
         type State = State;
         fn boot(&self) -> Self::State {
             self.boot.boot()
         }
-        fn authenticate(
-            &mut self,
-            state: &mut State,
-            action_id: &str,
-            msg: &str,
-            icon_name: &str,
-            details: HashMap<&str, &str>,
-            identifies: Vec<Identity<'_>>,
-            cookie: &str,
-        ) -> Result<(), Error> {
+
+        fn authenticate<'a>(
+            &'a mut self,
+            state: &'a mut Self::State,
+            action_id: &'a str,
+            message: &'a str,
+            icon_name: &'a str,
+            details: HashMap<&'a str, &'a str>,
+            cookie: &'a str,
+            identifies: Vec<Identity<'a>>,
+        ) -> impl Future<Output = Result<(), Error>> + Send {
             self.authenticate.authenticate(
-                state, action_id, msg, icon_name, details, cookie, identifies,
+                state, action_id, message, icon_name, details, cookie, identifies,
             )
         }
 
-        fn cancel_authentication(&mut self, state: &mut State, cookie: &str) -> Result<(), Error> {
+        fn cancel_authentication<'a>(
+            &'a mut self,
+            state: &'a mut State,
+            cookie: &'a str,
+        ) -> impl Future<Output = Result<(), Error>> + Send {
             self.cancel_authentication
                 .cancel_authentication(state, cookie)
         }

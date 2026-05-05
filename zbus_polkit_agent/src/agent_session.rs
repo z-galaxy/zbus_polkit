@@ -4,6 +4,7 @@ use std::{
     io::{Read, Write},
     os::unix::net::UnixStream,
     path::Path,
+    task::Poll,
 };
 
 const POLKIT_AGENT_HELPER_SOCKET: &str = "/run/polkit/agent-helper.socket";
@@ -15,6 +16,8 @@ pub struct PolkitAgentSession {
     complete: bool,
     succeeded: bool,
     cached_cookie: Option<String>,
+    data_cache: Vec<u8>,
+    sync_ready: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +47,33 @@ const PAM_ERROR_MSG: &str = "PAM_ERROR_MSG";
 const PAM_TEXT_INFO: &str = "PAM_TEXT_INFO";
 const SUCCESS: &str = "SUCCESS";
 const FAILURE: &str = "FAILURE";
+
+enum DataPoll {
+    DataReady,
+    Finished(Message),
+}
+
+struct DispatchPoll<'a> {
+    session: &'a mut PolkitAgentSession,
+}
+
+impl<'a> Future for DispatchPoll<'a> {
+    type Output = Result<Message, Error>;
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let mut poll_init = self.as_mut();
+        match poll_init.session.dispatch_async_inner() {
+            Ok(DataPoll::DataReady) => {
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            Ok(DataPoll::Finished(message)) => Poll::Ready(Ok(message)),
+            Err(e) => Poll::Ready(Err(e)),
+        }
+    }
+}
 
 impl PolkitAgentSession {
     pub fn user_name(&self) -> &str {
@@ -75,6 +105,8 @@ impl PolkitAgentSession {
             cached_cookie,
             complete: false,
             succeeded: false,
+            data_cache: vec![],
+            sync_ready: false,
         })
     }
 
@@ -112,6 +144,70 @@ impl PolkitAgentSession {
         } else {
             Status::Failure
         }
+    }
+
+    pub async fn async_dispatch(&mut self) -> Result<Message, Error> {
+        let poll_helper = DispatchPoll { session: self };
+        poll_helper.await
+    }
+
+    fn dispatch_async_inner(&mut self) -> Result<DataPoll, Error> {
+        if self.complete {
+            return Ok(DataPoll::Finished(Message::Complete(self.succeeded)));
+        }
+        if !self.sync_ready {
+            let mut data = vec![];
+            loop {
+                let mut exact = [0; 1];
+                self.stream.read_exact(&mut exact)?;
+
+                if exact[0] == b'\n' {
+                    data.extend(exact);
+                    break;
+                }
+                data.extend(exact);
+            }
+            self.sync_ready = true;
+            self.data_cache = data;
+            return Ok(DataPoll::DataReady);
+        }
+        let mut data = vec![];
+        std::mem::swap(&mut data, &mut self.data_cache);
+        self.sync_ready = false;
+        let response = String::from_utf8_lossy(&data);
+        if let Some(stripped) = response.strip_prefix(PAM_PROMPT_ECHO_OFF) {
+            let prompt = stripped.trim().to_string();
+            return Ok(DataPoll::Finished(Message::Request {
+                echo_on: false,
+                prompt,
+            }));
+        }
+        if let Some(stripped) = response.strip_prefix(PAM_PROMPT_ECHO_ON) {
+            let prompt = stripped.trim().to_string();
+            return Ok(DataPoll::Finished(Message::Request {
+                echo_on: true,
+                prompt,
+            }));
+        }
+
+        if let Some(stripped) = response.strip_prefix(PAM_ERROR_MSG) {
+            let message = stripped.trim_start().to_string();
+            return Ok(DataPoll::Finished(Message::Error(message)));
+        }
+        if let Some(stripped) = response.strip_prefix(PAM_TEXT_INFO) {
+            let message = stripped.trim_start().to_string();
+            return Ok(DataPoll::Finished(Message::Info(message)));
+        }
+
+        self.complete = true;
+        if response.starts_with(SUCCESS) {
+            self.succeeded = true;
+            return Ok(DataPoll::Finished(Message::Complete(true)));
+        }
+        if response.starts_with(FAILURE) {
+            return Ok(DataPoll::Finished(Message::Complete(false)));
+        }
+        Err(Error::UnknownMessage(response.to_string()))
     }
 
     pub fn dispatch(&mut self) -> Result<Message, Error> {
