@@ -1,13 +1,15 @@
-[package]
-name = "zbus_polkit"
+[workspace]
+resolver = "3"
+members = ["zbus_polkit", "zbus_polkit_agent"]
+
+[workspace.package]
 version = "5.0.0"
 authors = [
-    "Marc-André Lureau <marcandre.lureau@redhat.com>",
-    "Zeeshan Ali Khan <zeenix@gmail.com>",
+	"Marc-André Lureau <marcandre.lureau@redhat.com>",
+	"Zeeshan Ali Khan <zeenix@gmail.com>",
 ]
-edition = "2021"
-rust-version = "1.64"
-
+edition = "2024"
+rust-version = "1.85"
 description = "PolicyKit binding"
 repository = "https://github.com/z-galaxy/zbus_polkit/"
 keywords = ["D-Bus", "DBus", "IPC"]
@@ -15,18 +17,16 @@ license = "MIT"
 categories = ["os::unix-apis"]
 readme = "README.md"
 
-[features]
-default = ["zbus/async-io", "blocking-api"]
-tokio = ["zbus/tokio"]
-blocking-api = ["zbus/blocking-api"]
-
-[dependencies]
+[workspace.dependencies]
+zbus_polkit = { version = "5.0.0", path = "./zbus_polkit" }
 zbus = { version = "5.0.0", default-features = false }
 serde = { version = "1.0.200", features = ["derive"] }
 serde_repr = "0.1.19"
 enumflags2 = { version = "0.7.9", features = ["serde"] }
 static_assertions = "1.1.0"
-
-[dev-dependencies]
+systemd = "0.10.1"
+thiserror = "2.0.17"
+nix = { version = "0.31.2", features = ["process", "user"] }
 byteorder = "1.5.0"
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { version = "1", features = ["full"] }
+rpassword = "7.5.2"
