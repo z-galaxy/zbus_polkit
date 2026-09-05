@@ -5,7 +5,7 @@ authors = [
     "Marc-André Lureau <marcandre.lureau@redhat.com>",
     "Zeeshan Ali Khan <zeenix@gmail.com>",
 ]
-edition = "2021"
+edition = "2024"
 rust-version = "1.87"
 
 description = "PolicyKit binding"
