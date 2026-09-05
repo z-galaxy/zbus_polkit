@@ -26,6 +26,10 @@ serde = { version = "1.0.200", features = ["derive"] }
 serde_repr = "0.1.19"
 enumflags2 = { version = "0.7.9", features = ["serde"] }
 static_assertions = "1.1.0"
+nix = { version = "0.31.2", features = ["process", "user"] }
+systemd = "0.10.1"
+libsystemd-sys = "0.9.4"
+thiserror = "2.0.18"
 
 [dev-dependencies]
 byteorder = "1.5.0"

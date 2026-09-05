@@ -6,5 +6,7 @@
 
 mod error;
 pub use error::*;
+pub mod identify;
+pub mod polkitagent;
 
 pub mod policykit1;
