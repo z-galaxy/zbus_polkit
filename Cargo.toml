@@ -2,8 +2,8 @@
 name = "zbus_polkit"
 version = "5.1.0"
 authors = [
-    "Marc-André Lureau <marcandre.lureau@redhat.com>",
-    "Zeeshan Ali Khan <zeenix@gmail.com>",
+	"Marc-André Lureau <marcandre.lureau@redhat.com>",
+	"Zeeshan Ali Khan <zeenix@gmail.com>",
 ]
 edition = "2024"
 rust-version = "1.87"
@@ -33,4 +33,5 @@ thiserror = "2.0.18"
 
 [dev-dependencies]
 byteorder = "1.5.0"
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { version = "1", features = ["full"] }
+rpassword = "7.5.2"
