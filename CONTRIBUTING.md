@@ -64,6 +64,12 @@ than waiting for the CI servers to run tests for you.
 cargo test --all-features
 ```
 
+The `Authority` tests in `tests/authority.rs` talk to the polkit daemon when one is answering on
+the system bus, and to an in-process mock of the same interface when there is none. Set
+`ZBUS_POLKIT_MOCK` to use the mock even where a daemon is running, and `ZBUS_POLKIT_REQUIRE_REAL`
+to turn a missing daemon into a failure rather than a fallback. CI sets both, in separate runs, so
+that each backend is covered.
+
 Also please ensure that code is formatted correctly by running:
 
 ```sh

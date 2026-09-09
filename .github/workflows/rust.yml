@@ -63,18 +63,32 @@ jobs:
       RUSTFLAGS: -D warnings
       RUST_BACKTRACE: full
       RUST_LOG: trace
+      # Fail instead of quietly falling back to the in-process mock, so this job really does
+      # exercise the daemon installed below.
+      ZBUS_POLKIT_REQUIRE_REAL: 1
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
+      - name: Install polkit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y polkitd
+          sudo systemctl start polkit.service
       - name: Test default features (async-io + blocking-api)
         run: cargo --locked test
       - name: Test tokio without blocking-api
         run: cargo --locked test --no-default-features --features tokio
       - name: Test all features (async-io + tokio + blocking-api)
         run: cargo --locked test --all-features
+      - name: Test against the mock Authority
+        # The daemon cannot be driven into every state the proxy has to handle, so the mock covers
+        # the rest: the `uid` type on the wire and the `Changed` signal.
+        run: cargo --locked test --all-features --test authority
+        env:
+          ZBUS_POLKIT_MOCK: 1
 
   test_nightly:
     runs-on: ubuntu-latest
@@ -83,12 +97,20 @@ jobs:
       RUSTFLAGS: -D warnings
       RUST_BACKTRACE: full
       RUST_LOG: trace
+      # Fail instead of quietly falling back to the in-process mock, so this job really does
+      # exercise the daemon installed below.
+      ZBUS_POLKIT_REQUIRE_REAL: 1
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
       - uses: Swatinem/rust-cache@v2
+      - name: Install polkit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y polkitd
+          sudo systemctl start polkit.service
       - name: Test on nightly Rust
         run: cargo --locked test --all-features
 
