@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, os::fd::AsFd};
 
 use enumflags2::{bitflags, BitFlags};
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use static_assertions::assert_impl_all;
 use zbus::{
     fdo,
     names::OwnedUniqueName,
-    zvariant::{OwnedValue, Type, Value},
+    zvariant::{Fd, OwnedValue, Type, Value},
 };
 
 use crate::Error;
@@ -115,8 +115,9 @@ assert_impl_all!(Identity<'_>: Send, Sync, Unpin);
 ///
 /// The following kinds of subjects are known:
 ///
-/// * Unix Process. `subject_kind` should be set to `unix-process` with keys `pid` (of type
-///   `uint32`) and `start-time` (of type `uint64`).
+/// * Unix Process. `subject_kind` should be set to `unix-process` with keys `pidfd` (of type `fd`)
+///   and `uid` (of type `int32`) when the kernel supports pidfds, or alternatively with keys `pid`
+///   (of type `uint32`), `uid` (of type `int32`) and `start-time` (of type `uint64`).
 ///
 /// * Unix Session. `subject_kind` should be set to `unix-session` with the key `session-id` (of
 ///   type `string`).
@@ -136,7 +137,40 @@ pub struct Subject {
 assert_impl_all!(Subject: Send, Sync, Unpin);
 
 impl Subject {
+    /// Create a `Subject` for a process identified by `pidfd`.
+    ///
+    /// A pidfd names a specific process incarnation, so this is not subject to the PID-reuse
+    /// race that [`new_for_pid`](Self::new_for_pid) is. Polkit requires `uid` to be sent
+    /// together with a pidfd and will not look it up itself; obtain both from a trusted source
+    /// at the same time (e.g. `SO_PEERPIDFD` and `SO_PEERCRED`, or `pidfd_open` and a known
+    /// uid).
+    ///
+    /// # Arguments
+    ///
+    /// * `pidfd` - A pidfd for the process (from `pidfd_open(2)` or `SO_PEERPIDFD`)
+    ///
+    /// * `uid` - The (real, not effective) uid of the owner of the process
+    pub fn new_for_owner(pidfd: impl AsFd, uid: u32) -> Result<Self, Error> {
+        let fd = Fd::from(pidfd.as_fd().try_clone_to_owned()?);
+        let mut hashmap = HashMap::new();
+        hashmap.insert(
+            "pidfd".to_string(),
+            OwnedValue::try_from(Value::from(fd)).map_err(|e| {
+                std::io::Error::other(format!("failed to store pidfd in a D-Bus value: {e}"))
+            })?,
+        );
+        hashmap.insert("uid".to_string(), (uid as i32).into());
+
+        Ok(Self {
+            subject_kind: "unix-process".into(),
+            subject_details: hashmap,
+        })
+    }
+
     /// Create a `Subject` for `pid`, `start_time` & `uid`.
+    ///
+    /// A PID can be reused after the original process exits, so this form is racy. Prefer
+    /// [`new_for_owner`](Self::new_for_owner) when the kernel and polkit support pidfds.
     ///
     /// # Arguments
     ///
@@ -146,11 +180,7 @@ impl Subject {
     ///
     /// * `uid` - The (real, not effective) uid of the owner of `pid` or `None` to look it up in
     ///   e.g. `/proc`
-    pub fn new_for_owner(
-        pid: u32,
-        start_time: Option<u64>,
-        uid: Option<u32>,
-    ) -> Result<Self, Error> {
+    pub fn new_for_pid(pid: u32, start_time: Option<u64>, uid: Option<u32>) -> Result<Self, Error> {
         let start_time = match start_time {
             Some(s) => s,
             None => pid_start_time(pid)?,
@@ -481,9 +511,40 @@ mod tests {
 
     use super::*;
 
+    #[cfg(target_os = "linux")]
+    fn pidfd_for_self() -> rustix::fd::OwnedFd {
+        rustix::process::pidfd_open(
+            rustix::process::Pid::from_raw(std::process::id() as i32).expect("nonzero pid"),
+            rustix::process::PidfdFlags::empty(),
+        )
+        .expect("pidfd_open of self")
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
-    fn subject_for_owner_uses_polkit_wire_types() {
-        let subject = Subject::new_for_owner(4242, Some(1_000_000), Some(1234)).unwrap();
+    fn subject_for_owner_sends_pidfd_and_uid() {
+        let pidfd = pidfd_for_self();
+        let subject = Subject::new_for_owner(&pidfd, 1234).unwrap();
+
+        assert_eq!(subject.subject_kind, "unix-process");
+        assert_eq!(subject.subject_details.len(), 2);
+        // A UNIX_FD ('h'), not a raw i32: polkit looks the handle up in the message's fd
+        // list. Sent as any other type it is ignored and polkit falls back to pid+start-time.
+        assert_eq!(
+            subject.subject_details["pidfd"]
+                .value_signature()
+                .to_string(),
+            "h"
+        );
+        assert!(!subject.subject_details.contains_key("pid"));
+        assert!(!subject.subject_details.contains_key("start-time"));
+        // polkit refuses a pidfd subject without a uid, and ignores a uid that is not i32.
+        assert_eq!(*subject.subject_details["uid"], Value::I32(1234));
+    }
+
+    #[test]
+    fn subject_for_pid_uses_polkit_wire_types() {
+        let subject = Subject::new_for_pid(4242, Some(1_000_000), Some(1234)).unwrap();
 
         assert_eq!(subject.subject_kind, "unix-process");
         assert_eq!(subject.subject_details.len(), 3);
@@ -500,11 +561,11 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn subject_for_owner_looks_up_the_process_in_proc() {
+    fn subject_for_pid_looks_up_the_process_in_proc() {
         use std::os::unix::fs::MetadataExt;
 
         let pid = std::process::id();
-        let subject = Subject::new_for_owner(pid, None, None).unwrap();
+        let subject = Subject::new_for_pid(pid, None, None).unwrap();
 
         // /proc/<pid> is owned by the process's UID, which gives us an independent source of
         // truth that doesn't go through the parser under test.
@@ -522,9 +583,9 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn subject_for_owner_fails_for_a_missing_process() {
+    fn subject_for_pid_fails_for_a_missing_process() {
         // pid_max is capped at 2^22 on Linux, so this PID can never exist.
-        let err = Subject::new_for_owner(u32::MAX, None, None).unwrap_err();
+        let err = Subject::new_for_pid(u32::MAX, None, None).unwrap_err();
         assert!(matches!(err, Error::Io(_)), "{err:?}");
     }
 

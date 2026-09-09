@@ -1052,6 +1052,7 @@ version = "5.1.0"
 dependencies = [
  "byteorder",
  "enumflags2",
+ "rustix 1.1.4",
  "serde",
  "serde_repr",
  "static_assertions",

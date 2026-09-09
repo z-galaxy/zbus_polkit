@@ -12,6 +12,7 @@ for allowing unprivileged processes to speak to privileged processes.
 ## Example code
 
 ```rust,no_run
+use rustix::process::{pidfd_open, Pid, PidfdFlags};
 use zbus::Connection;
 use zbus_polkit::policykit1::*;
 
@@ -20,7 +21,14 @@ use zbus_polkit::policykit1::*;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let connection = Connection::system().await?;
     let proxy = AuthorityProxy::new(&connection).await?;
-    let subject = Subject::new_for_owner(std::process::id(), None, None)?;
+    // Prefer a pidfd (from pidfd_open or SO_PEERPIDFD) over a raw PID: PIDs get reused.
+    // Polkit requires the uid to be sent with the pidfd; take it from a trusted source
+    // (here, this process's own real uid).
+    let pidfd = pidfd_open(
+        Pid::from_raw(std::process::id() as i32).ok_or("pid 0")?,
+        PidfdFlags::empty(),
+    )?;
+    let subject = Subject::new_for_owner(&pidfd, rustix::process::getuid().as_raw())?;
     let result = proxy.check_authorization(
         &subject,
         "org.zbus.BeAwesome",
