@@ -4,11 +4,7 @@ use enumflags2::{bitflags, BitFlags};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use static_assertions::assert_impl_all;
-use zbus::{
-    fdo,
-    names::OwnedUniqueName,
-    zvariant::{OwnedValue, Type, Value},
-};
+use zbus::{fdo, names::OwnedUniqueName, OwnedValue, Type, Value};
 
 use crate::Error;
 
@@ -57,15 +53,6 @@ pub enum AuthorityFeatures {
 }
 
 assert_impl_all!(AuthorityFeatures: Send, Sync, Unpin);
-
-impl TryFrom<OwnedValue> for AuthorityFeatures {
-    type Error = <u32 as TryFrom<OwnedValue>>::Error;
-
-    fn try_from(v: OwnedValue) -> Result<Self, Self::Error> {
-        // safe because AuthorityFeatures has repr u32
-        Ok(unsafe { std::mem::transmute::<u32, AuthorityFeatures>(v.try_into()?) })
-    }
-}
 
 /// Details of a temporary authorization as provided by the /org/freedesktop/PolicyKit1/Authority
 /// object in the system bus.
@@ -456,8 +443,12 @@ pub trait Authority {
     fn changed(&self) -> fdo::Result<()>;
 
     /// The features supported by the currently used Authority backend.
+    ///
+    /// This is a flag set, not a single feature: a backend without any of them reports an empty
+    /// set, and a newer polkit may report a bit this crate does not name yet, which is an error
+    /// rather than an unnamed variant.
     #[zbus(property)]
-    fn backend_features(&self) -> fdo::Result<AuthorityFeatures>;
+    fn backend_features(&self) -> fdo::Result<BitFlags<AuthorityFeatures>>;
 
     /// The name of the currently used Authority backend.
     #[zbus(property)]
@@ -476,7 +467,7 @@ assert_impl_all!(AuthorityProxyBlocking<'_>: Send, Sync, Unpin);
 mod tests {
     use zbus::{
         message::Message,
-        zvariant::{serialized::Context, to_bytes, LE},
+        wire::{serialized::Context, to_bytes, LE},
     };
 
     use super::*;
@@ -613,7 +604,7 @@ mod tests {
 
     #[test]
     fn enums_serialize_as_their_u32_discriminant() {
-        let ctxt = Context::new_dbus(LE, 0);
+        let ctxt = Context::new(LE, 0);
 
         let encoded = to_bytes(ctxt, &ImplicitAuthorization::Authorized).unwrap();
         assert_eq!(encoded.bytes(), 5u32.to_le_bytes());
@@ -627,20 +618,30 @@ mod tests {
     }
 
     #[test]
-    fn authority_features_from_value() {
-        let features = AuthorityFeatures::try_from(OwnedValue::from(1u32)).unwrap();
-        assert_eq!(features, AuthorityFeatures::TemporaryAuthorization);
+    fn authority_features_decode_from_their_bits() {
+        let ctxt = Context::new(LE, 0);
+        let decode = |bits: u32| {
+            to_bytes(ctxt, &bits)
+                .unwrap()
+                .deserialize::<BitFlags<AuthorityFeatures>>()
+                .map(|(features, _)| features)
+        };
 
-        let not_a_u32 = OwnedValue::try_from(Value::Str("nope".into())).unwrap();
-        assert!(AuthorityFeatures::try_from(not_a_u32).is_err());
+        assert_eq!(
+            decode(1).unwrap(),
+            AuthorityFeatures::TemporaryAuthorization
+        );
+        // A backend that supports none of them is not an error.
+        assert!(decode(0).unwrap().is_empty());
+        // A bit this crate does not name is. The previous `transmute` turned it into an
+        // `AuthorityFeatures` that matched no variant.
+        assert!(decode(0b10).is_err());
     }
 
     #[test]
     fn subject_for_message_header_uses_the_sender_bus_name() {
         let msg = Message::method_call("/org/example/Object", "Frobnicate")
-            .unwrap()
             .sender(":1.42")
-            .unwrap()
             .build(&())
             .unwrap();
 
@@ -654,7 +655,6 @@ mod tests {
     #[test]
     fn subject_for_message_header_requires_a_sender() {
         let msg = Message::method_call("/org/example/Object", "Frobnicate")
-            .unwrap()
             .build(&())
             .unwrap();
 
