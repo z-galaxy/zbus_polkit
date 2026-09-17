@@ -150,7 +150,7 @@ async fn enumerate_temporary_authorizations() {
             assert_eq!(auths.len(), 1);
             assert_eq!(auths[0].id, mock_authority::TEMPORARY_AUTHORIZATION_ID);
             assert_eq!(auths[0].action_id, mock_authority::ACTION_ID);
-            assert_eq!(auths[0].subject.subject_kind, "unix-process");
+            assert_eq!(auths[0].subject.kind(), "unix-process");
             assert_eq!(auths[0].time_obtained, 1);
             assert_eq!(auths[0].time_expires, 2);
         }
@@ -299,7 +299,7 @@ impl Harness {
 
     /// A `unix-process` subject for the test process itself.
     fn own_process_subject() -> Subject {
-        Subject::new_for_owner(process::id(), None, None).unwrap()
+        Subject::new_for_pid(process::id(), None, None).unwrap()
     }
 
     /// The mock's interface handle, for asserting on what it received and emitting from it.

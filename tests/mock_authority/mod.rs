@@ -10,7 +10,7 @@ use futures_util::future;
 use zbus::{
     connection,
     object_server::{InterfaceRef, SignalEmitter},
-    Connection, Guid,
+    Connection, Guid, OwnedValue,
 };
 use zbus_polkit::policykit1::{
     ActionDescription, AuthorityFeatures, AuthorizationResult, CheckAuthorizationFlags,
@@ -58,16 +58,19 @@ pub struct MockAuthority {
 
 #[zbus::interface(name = "org.freedesktop.PolicyKit1.Authority")]
 impl MockAuthority {
+    // Takes the subject in the form it arrives in rather than as a `Subject`, so that what is
+    // asserted is what the encoder put on the wire and not what this crate's own decoder made of
+    // it afterwards.
     async fn check_authorization(
         &mut self,
-        subject: Subject,
+        subject: (String, HashMap<String, OwnedValue>),
         _action_id: String,
         _details: HashMap<String, String>,
         _flags: BitFlags<CheckAuthorizationFlags>,
         _cancellation_id: String,
     ) -> AuthorizationResult {
-        self.last_uid_signature = subject
-            .subject_details
+        let (_kind, details) = subject;
+        self.last_uid_signature = details
             .get("uid")
             .map(|uid| uid.value_signature().to_string());
 

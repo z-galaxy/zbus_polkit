@@ -20,7 +20,7 @@ use zbus_polkit::policykit1::*;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let connection = Connection::system().await?;
     let proxy = AuthorityProxy::new(&connection).await?;
-    let subject = Subject::new_for_owner(std::process::id(), None, None)?;
+    let subject = Subject::new_for_pid(std::process::id(), None, None)?;
     let result = proxy.check_authorization(
         &subject,
         "org.zbus.BeAwesome",
