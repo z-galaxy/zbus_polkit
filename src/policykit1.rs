@@ -201,7 +201,7 @@ fn parse_start_time(stat: &str) -> Result<u64, Error> {
     let start_time = stat
         .rfind(')')
         .and_then(|i| stat[i..].split(' ').nth(20))
-        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))?;
+        .ok_or(Error::MalformedSlashProc("start-time"))?;
 
     Ok(start_time.parse()?)
 }
@@ -223,7 +223,7 @@ fn parse_uid(status: &str) -> Result<u32, Error> {
         .lines()
         .find_map(|line| line.strip_prefix("Uid:"))
         .and_then(|uids| uids.split_whitespace().next())
-        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))?;
+        .ok_or(Error::MalformedSlashProc("uid"))?;
 
     Ok(uid.parse()?)
 }
@@ -536,15 +536,18 @@ mod tests {
 
     #[test]
     fn start_time_rejects_malformed_stat() {
-        assert!(matches!(parse_start_time(""), Err(Error::Io(_))));
+        assert!(matches!(
+            parse_start_time(""),
+            Err(Error::MalformedSlashProc("start-time"))
+        ));
         assert!(matches!(
             parse_start_time("no parens here"),
-            Err(Error::Io(_))
+            Err(Error::MalformedSlashProc("start-time"))
         ));
         // Too few fields after `comm`.
         assert!(matches!(
             parse_start_time("1234 (x) S 1 1234"),
-            Err(Error::Io(_))
+            Err(Error::MalformedSlashProc("start-time"))
         ));
         // Field 22 present but not a number.
         let stat = "1 (x) S 0 1 1 0 -1 4194560 100 0 0 0 5 3 0 0 20 0 1 0 forty-two 12345678 100";
@@ -568,12 +571,18 @@ mod tests {
 
     #[test]
     fn uid_rejects_malformed_status() {
-        assert!(matches!(parse_uid(""), Err(Error::Io(_))));
+        assert!(matches!(
+            parse_uid(""),
+            Err(Error::MalformedSlashProc("uid"))
+        ));
         assert!(matches!(
             parse_uid("Name:\tx\nGid:\t0\t0\t0\t0\n"),
-            Err(Error::Io(_))
+            Err(Error::MalformedSlashProc("uid"))
         ));
-        assert!(matches!(parse_uid("Uid:\n"), Err(Error::Io(_))));
+        assert!(matches!(
+            parse_uid("Uid:\n"),
+            Err(Error::MalformedSlashProc("uid"))
+        ));
         assert!(matches!(
             parse_uid("Uid:\tnobody\n"),
             Err(Error::ParseInt(_))
