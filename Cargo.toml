@@ -1,6 +1,6 @@
 [package]
 name = "zbus_polkit"
-version = "5.1.0"
+version = "6.0.0"
 authors = [
     "Marc-André Lureau <marcandre.lureau@redhat.com>",
     "Zeeshan Ali Khan <zeenix@gmail.com>",
@@ -21,7 +21,10 @@ tokio = ["zbus/tokio"]
 blocking-api = ["zbus/blocking-api"]
 
 [dependencies]
-zbus = { version = "5.0.0", default-features = false }
+# zbus 6 is unreleased; this has to point at git until it is on crates.io.
+zbus = { git = "https://github.com/z-galaxy/zbus", version = "6.0.0", default-features = false, features = [
+    "proxy",
+] }
 serde = { version = "1.0.200", features = ["derive"] }
 serde_repr = "0.1.19"
 enumflags2 = { version = "0.7.9", features = ["serde"] }
@@ -30,6 +33,10 @@ static_assertions = "1.1.0"
 [dev-dependencies]
 byteorder = "1.5.0"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# The README example opens a pidfd for the current process.
+rustix = { version = "1", features = ["process"] }
+# A self-describing format, to check `Subject` decodes from a map as well as a sequence.
+serde_json = "1"
 tokio = { version = "1", features = [
     "macros",
     "net",
@@ -37,5 +44,9 @@ tokio = { version = "1", features = [
     "rt-multi-thread",
     "time",
 ] }
-# `connection::Builder::async_io_unix_stream` was added in 5.19.0.
-zbus = { version = "5.19.0", default-features = false, features = ["p2p"] }
+# The tests stand up an object server over a p2p connection, which the library itself does not
+# need. Same git source as the dependency above.
+zbus = { git = "https://github.com/z-galaxy/zbus", version = "6.0.0", default-features = false, features = [
+    "p2p",
+    "service",
+] }

@@ -10,7 +10,7 @@ use futures_util::future;
 use zbus::{
     connection,
     object_server::{InterfaceRef, SignalEmitter},
-    Connection, Guid,
+    Connection, Guid, OwnedValue,
 };
 use zbus_polkit::policykit1::{
     ActionDescription, AuthorityFeatures, AuthorizationResult, CheckAuthorizationFlags,
@@ -21,17 +21,9 @@ use zbus_polkit::policykit1::{
 ///
 /// The server has to outlive the client for the client to have anything to talk to.
 pub async fn connect() -> (Connection, Connection) {
-    #[cfg(not(feature = "tokio"))]
+    // `Builder::unix_stream` takes a std stream and drives it on whichever runtime the connection
+    // is built on, so the same pair works for both the async-io and tokio builds.
     let (server_stream, client_stream) = std::os::unix::net::UnixStream::pair().unwrap();
-    #[cfg(feature = "tokio")]
-    let (server_stream, client_stream) = tokio::net::UnixStream::pair().unwrap();
-
-    #[cfg(not(feature = "tokio"))]
-    let (server, client) = (
-        connection::Builder::async_io_unix_stream(server_stream),
-        connection::Builder::async_io_unix_stream(client_stream),
-    );
-    #[cfg(feature = "tokio")]
     let (server, client) = (
         connection::Builder::unix_stream(server_stream),
         connection::Builder::unix_stream(client_stream),
@@ -39,10 +31,8 @@ pub async fn connect() -> (Connection, Connection) {
 
     let server = server
         .server(Guid::generate())
-        .unwrap()
         .p2p()
         .serve_at(AUTHORITY_PATH, MockAuthority::default())
-        .unwrap()
         .build();
 
     // Both ends have to make progress for the peer-to-peer handshake to finish.
@@ -68,16 +58,19 @@ pub struct MockAuthority {
 
 #[zbus::interface(name = "org.freedesktop.PolicyKit1.Authority")]
 impl MockAuthority {
+    // Takes the subject in the form it arrives in rather than as a `Subject`, so that what is
+    // asserted is what the encoder put on the wire and not what this crate's own decoder made of
+    // it afterwards.
     async fn check_authorization(
         &mut self,
-        subject: Subject,
+        subject: (String, HashMap<String, OwnedValue>),
         _action_id: String,
         _details: HashMap<String, String>,
         _flags: BitFlags<CheckAuthorizationFlags>,
         _cancellation_id: String,
     ) -> AuthorizationResult {
-        self.last_uid_signature = subject
-            .subject_details
+        let (_kind, details) = subject;
+        self.last_uid_signature = details
             .get("uid")
             .map(|uid| uid.value_signature().to_string());
 

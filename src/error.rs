@@ -14,6 +14,11 @@ pub enum Error {
     /// Could not parse a number for a Process ID or an User ID.
     ParseInt(std::num::ParseIntError),
 
+    /// A file in `/proc` did not have the expected contents.
+    ///
+    /// Carries the name of the field that could not be found in it.
+    MalformedSlashProc(&'static str),
+
     /// Could not retrieve/deserialize sender header of the message.
     BadSender(zbus::Error),
 
@@ -40,6 +45,7 @@ impl std::error::Error for Error {
         match self {
             Error::Io(e) => Some(e),
             Error::ParseInt(e) => Some(e),
+            Error::MalformedSlashProc(_) => None,
             Error::BadSender(e) => Some(e),
             Error::MissingSender => None,
         }
@@ -51,6 +57,7 @@ impl Display for Error {
         match self {
             Error::Io(e) => e.fmt(f),
             Error::ParseInt(e) => e.fmt(f),
+            Error::MalformedSlashProc(field) => write!(f, "could not read {field} from /proc"),
             Error::BadSender(e) => e.fmt(f),
             Error::MissingSender => write!(f, "sender header field missing in the message",),
         }
