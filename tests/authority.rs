@@ -217,30 +217,6 @@ async fn changed_signal() {
     }
 }
 
-#[cfg(feature = "blocking-api")]
-#[test]
-fn blocking_backend_name() {
-    // Not a `#[tokio::test]`: the blocking API blocks the calling thread, which panics inside a
-    // runtime. Setting the harness up still needs one, and with the `tokio` feature the
-    // connections' tasks end up on it, so it has to be multi-threaded to keep driving them while
-    // this thread is blocked.
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let harness = runtime.block_on(Harness::new());
-    let connection = zbus::blocking::Connection::from(harness.client.clone());
-    let name = zbus_polkit::policykit1::AuthorityProxyBlocking::new(&connection)
-        .unwrap()
-        .backend_name()
-        .unwrap();
-
-    assert!(!name.is_empty(), "BackendName should not be empty");
-    if harness.kind == Backend::Mock {
-        assert_eq!(name, mock_authority::BACKEND_NAME);
-    }
-}
-
 /// Which `org.freedesktop.PolicyKit1.Authority` the tests are talking to.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Backend {

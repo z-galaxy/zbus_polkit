@@ -16,9 +16,8 @@ categories = ["os::unix-apis"]
 readme = "README.md"
 
 [features]
-default = ["zbus/async-io", "blocking-api"]
+default = ["zbus/default-rt"]
 tokio = ["zbus/tokio"]
-blocking-api = ["zbus/blocking-api"]
 
 [dependencies]
 # zbus 6 is unreleased; this has to point at git until it is on crates.io.
