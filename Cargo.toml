@@ -6,7 +6,7 @@ authors = [
     "Zeeshan Ali Khan <zeenix@gmail.com>",
 ]
 edition = "2021"
-rust-version = "1.87"
+rust-version = "1.89"
 
 description = "PolicyKit binding"
 repository = "https://github.com/z-galaxy/zbus_polkit/"

@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: -D warnings
-      MSRV: 1.87.0
+      MSRV: 1.89.0
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
