@@ -6,7 +6,7 @@ authors = [
     "Zeeshan Ali Khan <zeenix@gmail.com>",
 ]
 edition = "2021"
-rust-version = "1.87"
+rust-version = "1.89"
 
 description = "PolicyKit binding"
 repository = "https://github.com/z-galaxy/zbus_polkit/"
@@ -16,9 +16,8 @@ categories = ["os::unix-apis"]
 readme = "README.md"
 
 [features]
-default = ["zbus/async-io", "blocking-api"]
+default = ["zbus/default-rt"]
 tokio = ["zbus/tokio"]
-blocking-api = ["zbus/blocking-api"]
 
 [dependencies]
 # zbus 6 is unreleased; this has to point at git until it is on crates.io.

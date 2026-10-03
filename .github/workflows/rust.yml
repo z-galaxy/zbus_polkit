@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: -D warnings
-      MSRV: 1.87.0
+      MSRV: 1.89.0
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
@@ -82,11 +82,11 @@ jobs:
           # alright because this machine is thrown away with the job.
           sudo install -d -o "$(id -u)" -g "$(id -g)" /etc/polkit-1/rules.d
           sudo systemctl start polkit.service
-      - name: Test default features (async-io + blocking-api)
+      - name: Test default features (default runtime)
         run: cargo --locked test
-      - name: Test tokio without blocking-api
+      - name: Test tokio
         run: cargo --locked test --no-default-features --features tokio
-      - name: Test all features (async-io + tokio + blocking-api)
+      - name: Test all features (default runtime + tokio)
         run: cargo --locked test --all-features
       - name: Test against the mock Authority
         # For the two assertions this harness cannot make against the daemon: the `uid` type it
