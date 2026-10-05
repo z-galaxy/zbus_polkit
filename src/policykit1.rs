@@ -470,6 +470,23 @@ mod tests {
         assert_eq!(dict[&features], 1);
     }
 
+    // A `Value` taken out of a received message borrows from the message's buffer.
+    #[test]
+    fn flags_convert_from_borrowed_values() {
+        let ctxt = Context::new(LE, 0);
+
+        let flags = CheckAuthorizationFlags::ALLOW_USER_INTERACTION;
+        let encoded = to_bytes(ctxt, &Value::from(flags)).unwrap();
+        let (value, _): (Value<'_>, _) = encoded.deserialize().unwrap();
+        assert_eq!(CheckAuthorizationFlags::try_from(value).unwrap(), flags);
+
+        // Including the bits this crate does not name.
+        let features = AuthorityFeatures::from_bits_retain(0b11);
+        let encoded = to_bytes(ctxt, &Value::from(features)).unwrap();
+        let (value, _): (Value<'_>, _) = encoded.deserialize().unwrap();
+        assert_eq!(AuthorityFeatures::try_from(value).unwrap(), features);
+    }
+
     #[test]
     fn enums_serialize_as_their_u32_discriminant() {
         let ctxt = Context::new(LE, 0);
