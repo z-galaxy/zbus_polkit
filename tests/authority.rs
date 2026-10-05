@@ -24,11 +24,12 @@ use std::{
     time::Duration,
 };
 
-use enumflags2::BitFlags;
 use futures_util::StreamExt;
 use mock_authority::MockAuthority;
 use zbus::{object_server::InterfaceRef, Connection};
-use zbus_polkit::policykit1::{AuthorityFeatures, AuthorityProxy, ImplicitAuthorization, Subject};
+use zbus_polkit::policykit1::{
+    AuthorityFeatures, AuthorityProxy, CheckAuthorizationFlags, ImplicitAuthorization, Subject,
+};
 
 #[tokio::test]
 async fn backend_properties() {
@@ -47,7 +48,7 @@ async fn backend_properties() {
     if harness.kind == Backend::Mock {
         assert_eq!(name, mock_authority::BACKEND_NAME);
         assert_eq!(version, mock_authority::BACKEND_VERSION);
-        assert_eq!(features, AuthorityFeatures::TemporaryAuthorization);
+        assert_eq!(features, AuthorityFeatures::TEMPORARY_AUTHORIZATION);
     }
 }
 
@@ -105,10 +106,16 @@ async fn check_authorization() {
         }
     };
 
-    // Without `AllowUserInteraction` polkit answers from the policy alone instead of raising an
+    // Without `ALLOW_USER_INTERACTION` polkit answers from the policy alone instead of raising an
     // authentication dialog, so this cannot block the suite.
     let result = proxy
-        .check_authorization(&subject, &action_id, &HashMap::new(), BitFlags::empty(), "")
+        .check_authorization(
+            &subject,
+            &action_id,
+            &HashMap::new(),
+            CheckAuthorizationFlags::empty(),
+            "",
+        )
         .await
         .unwrap();
 

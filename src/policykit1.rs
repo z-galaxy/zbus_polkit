@@ -1,23 +1,54 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
-use enumflags2::{bitflags, BitFlags};
+use bitflags::{parser, Flags};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use static_assertions::assert_impl_all;
-use zbus::{fdo, Type, Value};
+use zbus::{fdo, Basic, OwnedValue, Type, Value};
 
 mod subject;
 pub use subject::Subject;
 
 /// Flags used in the CheckAuthorization() method.
-#[bitflags]
-#[repr(u32)]
-#[derive(Type, Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
-pub enum CheckAuthorizationFlags {
-    /// If the Subject can obtain the authorization through authentication, and an authentication
-    /// agent is available, then attempt to do so. Note, this means that the CheckAuthorization()
-    /// method will block while the user is being asked to authenticate.
-    AllowUserInteraction = 0x01,
+///
+/// This is a [`bitflags`] flag set, sent over the wire as a plain `u32`. Combine flags with `|`,
+/// and use [`CheckAuthorizationFlags::empty`] for none of them.
+#[derive(
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    Type,
+    Value,
+    OwnedValue,
+)]
+pub struct CheckAuthorizationFlags(u32);
+
+bitflags::bitflags! {
+    impl CheckAuthorizationFlags: u32 {
+        /// If the Subject can obtain the authorization through authentication, and an
+        /// authentication agent is available, then attempt to do so. Note, this means that the
+        /// CheckAuthorization() method will block while the user is being asked to authenticate.
+        const ALLOW_USER_INTERACTION = 0x01;
+    }
+}
+
+impl fmt::Debug for CheckAuthorizationFlags {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        debug_flags("CheckAuthorizationFlags", self, f)
+    }
+}
+
+// So that the flags can be the key of a dictionary.
+impl Basic for CheckAuthorizationFlags {
+    const SIGNATURE_CHAR: char = u32::SIGNATURE_CHAR;
+    const SIGNATURE_STR: &'static str = u32::SIGNATURE_STR;
 }
 
 assert_impl_all!(CheckAuthorizationFlags: Send, Sync, Unpin);
@@ -44,13 +75,46 @@ pub enum ImplicitAuthorization {
 assert_impl_all!(ImplicitAuthorization: Send, Sync, Unpin);
 
 /// Flags describing features supported by the Authority implementation.
-#[bitflags]
-#[repr(u32)]
-#[derive(Type, Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
-pub enum AuthorityFeatures {
-    /// The authority supports temporary authorizations that can be obtained through
-    /// authentication.
-    TemporaryAuthorization = 0x01,
+///
+/// This is a [`bitflags`] flag set, sent over the wire as a plain `u32`. A bit that this crate
+/// does not name, e.g. one added by a newer polkit, is retained rather than rejected: it shows up
+/// in [`AuthorityFeatures::bits`] and in the `Debug` output as a hex number, but matches none of
+/// the constants.
+#[derive(
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    Type,
+    Value,
+    OwnedValue,
+)]
+pub struct AuthorityFeatures(u32);
+
+bitflags::bitflags! {
+    impl AuthorityFeatures: u32 {
+        /// The authority supports temporary authorizations that can be obtained through
+        /// authentication.
+        const TEMPORARY_AUTHORIZATION = 0x01;
+    }
+}
+
+impl fmt::Debug for AuthorityFeatures {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        debug_flags("AuthorityFeatures", self, f)
+    }
+}
+
+// So that the flags can be the key of a dictionary.
+impl Basic for AuthorityFeatures {
+    const SIGNATURE_CHAR: char = u32::SIGNATURE_CHAR;
+    const SIGNATURE_STR: &'static str = u32::SIGNATURE_STR;
 }
 
 assert_impl_all!(AuthorityFeatures: Send, Sync, Unpin);
@@ -144,8 +208,8 @@ pub struct AuthorizationResult {
     pub is_authorized: bool,
 
     /// TRUE if the given `Subject` could be authorized if more information was provided, and
-    /// `CheckAuthorizationFlags::AllowUserInteraction` wasn't passed or no suitable authentication
-    /// agent was available.
+    /// `CheckAuthorizationFlags::ALLOW_USER_INTERACTION` wasn't passed or no suitable
+    /// authentication agent was available.
     pub is_challenge: bool,
 
     /// Details for the result. Known key/value-pairs include `polkit.temporary_authorization_id`
@@ -200,9 +264,9 @@ pub trait Authority {
     /// If `cancellation_id` is non-empty and already in use for the caller, the
     /// `org.freedesktop.PolicyKit1.Error.CancellationIdNotUnique` error is returned.
     ///
-    /// Note that `CheckAuthorizationFlags::AllowUserInteraction` SHOULD be passed ONLY if the event
-    /// that triggered the authorization check is stemming from an user action, e.g. the user
-    /// pressing a button or attaching a device.
+    /// Note that `CheckAuthorizationFlags::ALLOW_USER_INTERACTION` SHOULD be passed ONLY if the
+    /// event that triggered the authorization check is stemming from an user action, e.g. the
+    /// user pressing a button or attaching a device.
     ///
     /// # Arguments
     ///
@@ -239,7 +303,7 @@ pub trait Authority {
         subject: &Subject,
         action_id: &str,
         details: &std::collections::HashMap<&str, &str>,
-        flags: BitFlags<CheckAuthorizationFlags>,
+        flags: CheckAuthorizationFlags,
         cancellation_id: &str,
     ) -> zbus::Result<AuthorizationResult>;
 
@@ -315,10 +379,10 @@ pub trait Authority {
     /// The features supported by the currently used Authority backend.
     ///
     /// This is a flag set, not a single feature: a backend without any of them reports an empty
-    /// set, and a newer polkit may report a bit this crate does not name yet, which is an error
-    /// rather than an unnamed variant.
+    /// set, and a newer polkit may report a bit this crate does not name yet, which is retained in
+    /// the returned value (see [`AuthorityFeatures::bits`]) instead of being an error.
     #[zbus(property)]
-    fn backend_features(&self) -> fdo::Result<BitFlags<AuthorityFeatures>>;
+    fn backend_features(&self) -> fdo::Result<AuthorityFeatures>;
 
     /// The name of the currently used Authority backend.
     #[zbus(property)]
@@ -330,6 +394,37 @@ pub trait Authority {
 }
 
 assert_impl_all!(AuthorityProxy<'_>: Send, Sync, Unpin);
+
+// Formats like the `Debug` impl that the `bitflags!` macro generates for a flag set it defines
+// itself, e.g. `AuthorityFeatures(TEMPORARY_AUTHORIZATION | 0x2)`, or `AuthorityFeatures(0x0)` for
+// the empty set. The macro does not generate it for the `impl` form used above, so that the type
+// can carry its own derives.
+//
+// The macro's flag set is a `#[derive(Debug)]` tuple struct around its internal flags type, so this
+// is formatted as a tuple struct too, to match in alternate mode (`{:#?}`) as well as in `{:?}`.
+fn debug_flags<F>(name: &str, flags: &F, f: &mut fmt::Formatter<'_>) -> fmt::Result
+where
+    F: Flags<Bits = u32>,
+{
+    f.debug_tuple(name).field(&FlagNames(flags)).finish()
+}
+
+// The flag names of a flag set, as `bitflags::parser::to_writer` writes them, with unnamed bits in
+// hex after them, and `0x0` for the empty set.
+struct FlagNames<'a, F>(&'a F);
+
+impl<F> fmt::Debug for FlagNames<'_, F>
+where
+    F: Flags<Bits = u32>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.is_empty() {
+            f.write_str("0x0")
+        } else {
+            parser::to_writer(self.0, f)
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -350,12 +445,46 @@ mod tests {
         assert_eq!(AuthorizationResult::SIGNATURE.to_string(), "(bba{ss})");
 
         assert_eq!(CheckAuthorizationFlags::SIGNATURE.to_string(), "u");
-        assert_eq!(
-            BitFlags::<CheckAuthorizationFlags>::SIGNATURE.to_string(),
-            "u"
-        );
         assert_eq!(ImplicitAuthorization::SIGNATURE.to_string(), "u");
         assert_eq!(AuthorityFeatures::SIGNATURE.to_string(), "u");
+    }
+
+    #[test]
+    fn flags_can_be_dictionary_keys() {
+        assert_eq!(
+            <HashMap<CheckAuthorizationFlags, u8>>::SIGNATURE.to_string(),
+            "a{uy}"
+        );
+        let flags = CheckAuthorizationFlags::ALLOW_USER_INTERACTION;
+        let value = Value::from(HashMap::from([(flags, 1u8)]));
+        let dict = <HashMap<CheckAuthorizationFlags, u8>>::try_from(value).unwrap();
+        assert_eq!(dict[&flags], 1);
+
+        assert_eq!(
+            <HashMap<AuthorityFeatures, u8>>::SIGNATURE.to_string(),
+            "a{uy}"
+        );
+        let features = AuthorityFeatures::TEMPORARY_AUTHORIZATION;
+        let value = Value::from(HashMap::from([(features, 1u8)]));
+        let dict = <HashMap<AuthorityFeatures, u8>>::try_from(value).unwrap();
+        assert_eq!(dict[&features], 1);
+    }
+
+    // A `Value` taken out of a received message borrows from the message's buffer.
+    #[test]
+    fn flags_convert_from_borrowed_values() {
+        let ctxt = Context::new(LE, 0);
+
+        let flags = CheckAuthorizationFlags::ALLOW_USER_INTERACTION;
+        let encoded = to_bytes(ctxt, &Value::from(flags)).unwrap();
+        let (value, _): (Value<'_>, _) = encoded.deserialize().unwrap();
+        assert_eq!(CheckAuthorizationFlags::try_from(value).unwrap(), flags);
+
+        // Including the bits this crate does not name.
+        let features = AuthorityFeatures::from_bits_retain(0b11);
+        let encoded = to_bytes(ctxt, &Value::from(features)).unwrap();
+        let (value, _): (Value<'_>, _) = encoded.deserialize().unwrap();
+        assert_eq!(AuthorityFeatures::try_from(value).unwrap(), features);
     }
 
     #[test]
@@ -367,10 +496,14 @@ mod tests {
         let (decoded, _) = encoded.deserialize::<ImplicitAuthorization>().unwrap();
         assert_eq!(decoded, ImplicitAuthorization::Authorized);
 
-        let flags: BitFlags<CheckAuthorizationFlags> =
-            CheckAuthorizationFlags::AllowUserInteraction.into();
+        let flags = CheckAuthorizationFlags::ALLOW_USER_INTERACTION;
         let encoded = to_bytes(ctxt, &flags).unwrap();
         assert_eq!(encoded.bytes(), 1u32.to_le_bytes());
+        let (decoded, _) = encoded.deserialize::<CheckAuthorizationFlags>().unwrap();
+        assert_eq!(decoded, flags);
+
+        let encoded = to_bytes(ctxt, &CheckAuthorizationFlags::empty()).unwrap();
+        assert_eq!(encoded.bytes(), 0u32.to_le_bytes());
     }
 
     #[test]
@@ -379,18 +512,97 @@ mod tests {
         let decode = |bits: u32| {
             to_bytes(ctxt, &bits)
                 .unwrap()
-                .deserialize::<BitFlags<AuthorityFeatures>>()
+                .deserialize::<AuthorityFeatures>()
                 .map(|(features, _)| features)
         };
 
         assert_eq!(
             decode(1).unwrap(),
-            AuthorityFeatures::TemporaryAuthorization
+            AuthorityFeatures::TEMPORARY_AUTHORIZATION
         );
         // A backend that supports none of them is not an error.
         assert!(decode(0).unwrap().is_empty());
-        // A bit this crate does not name is. The previous `transmute` turned it into an
-        // `AuthorityFeatures` that matched no variant.
-        assert!(decode(0b10).is_err());
+        // Neither is a bit this crate does not name, e.g. one a newer polkit has added: it is
+        // retained, so that it can still be inspected, but is none of the named features.
+        let unnamed = decode(0b10).unwrap();
+        assert_eq!(unnamed.bits(), 0b10);
+        assert!(!unnamed.is_empty());
+        assert!(!unnamed.contains(AuthorityFeatures::TEMPORARY_AUTHORIZATION));
+        // Known and unnamed bits side by side keep both.
+        let both = decode(0b11).unwrap();
+        assert!(both.contains(AuthorityFeatures::TEMPORARY_AUTHORIZATION));
+        assert_eq!(both.bits(), 0b11);
+    }
+
+    // The proxy reads `BackendFeatures` as a property, which goes through `OwnedValue`.
+    #[test]
+    fn flags_convert_to_and_from_values() {
+        let features = AuthorityFeatures::TEMPORARY_AUTHORIZATION;
+        let value = OwnedValue::try_from(Value::from(features)).unwrap();
+        assert_eq!(value.value_signature().to_string(), "u");
+        assert_eq!(AuthorityFeatures::try_from(value).unwrap(), features);
+
+        let value = OwnedValue::try_from(Value::from(AuthorityFeatures::empty())).unwrap();
+        assert_eq!(
+            AuthorityFeatures::try_from(value).unwrap(),
+            AuthorityFeatures::empty()
+        );
+
+        // Bits that this crate does not name are retained on this path too, rather than being an
+        // error, which is what used to happen when a newer polkit reported a feature we don't know.
+        let value = OwnedValue::try_from(Value::from(0b11u32)).unwrap();
+        let features = AuthorityFeatures::try_from(value).unwrap();
+        assert_eq!(features.bits(), 0b11);
+        assert!(features.contains(AuthorityFeatures::TEMPORARY_AUTHORIZATION));
+
+        let flags = CheckAuthorizationFlags::ALLOW_USER_INTERACTION;
+        let value = OwnedValue::try_from(Value::from(flags)).unwrap();
+        assert_eq!(CheckAuthorizationFlags::try_from(value).unwrap(), flags);
+    }
+
+    // `BitFlags<T>` used to be `Default`, so e.g. `Default::default()` could be passed as the flags
+    // argument of `check_authorization`. The default is the empty set.
+    #[test]
+    fn flags_default_to_the_empty_set() {
+        assert_eq!(
+            CheckAuthorizationFlags::default(),
+            CheckAuthorizationFlags::empty()
+        );
+        assert_eq!(AuthorityFeatures::default(), AuthorityFeatures::empty());
+    }
+
+    #[test]
+    fn flags_debug_output_names_the_flags() {
+        assert_eq!(
+            format!("{:?}", CheckAuthorizationFlags::ALLOW_USER_INTERACTION),
+            "CheckAuthorizationFlags(ALLOW_USER_INTERACTION)"
+        );
+        assert_eq!(
+            format!("{:?}", CheckAuthorizationFlags::empty()),
+            "CheckAuthorizationFlags(0x0)"
+        );
+        assert_eq!(
+            format!("{:?}", AuthorityFeatures::TEMPORARY_AUTHORIZATION),
+            "AuthorityFeatures(TEMPORARY_AUTHORIZATION)"
+        );
+        // Bits without a name are shown in hex after the named ones.
+        assert_eq!(
+            format!("{:?}", AuthorityFeatures::from_bits_retain(0b11)),
+            "AuthorityFeatures(TEMPORARY_AUTHORIZATION | 0x2)"
+        );
+        assert_eq!(
+            format!("{:?}", AuthorityFeatures::from_bits_retain(0b10)),
+            "AuthorityFeatures(0x2)"
+        );
+        // Like the output of the `bitflags!` macro's own, `{:#?}` (which `dbg!` uses) is a
+        // multi-line tuple struct.
+        assert_eq!(
+            format!("{:#?}", AuthorityFeatures::TEMPORARY_AUTHORIZATION),
+            "AuthorityFeatures(\n    TEMPORARY_AUTHORIZATION,\n)"
+        );
+        assert_eq!(
+            format!("{:#?}", AuthorityFeatures::empty()),
+            "AuthorityFeatures(\n    0x0,\n)"
+        );
     }
 }

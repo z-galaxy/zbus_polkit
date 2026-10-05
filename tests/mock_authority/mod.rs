@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 
-use enumflags2::BitFlags;
 use futures_util::future;
 use zbus::{
     connection,
@@ -66,7 +65,7 @@ impl MockAuthority {
         subject: (String, HashMap<String, OwnedValue>),
         _action_id: String,
         _details: HashMap<String, String>,
-        _flags: BitFlags<CheckAuthorizationFlags>,
+        _flags: CheckAuthorizationFlags,
         _cancellation_id: String,
     ) -> AuthorizationResult {
         let (_kind, details) = subject;
@@ -123,7 +122,7 @@ impl MockAuthority {
 
     #[zbus(property)]
     fn backend_features(&self) -> u32 {
-        AuthorityFeatures::TemporaryAuthorization as u32
+        AuthorityFeatures::TEMPORARY_AUTHORIZATION.bits()
     }
 
     #[zbus(property)]

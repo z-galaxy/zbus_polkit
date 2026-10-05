@@ -26,7 +26,7 @@ zbus = { git = "https://github.com/z-galaxy/zbus", version = "6.0.0", default-fe
 ] }
 serde = { version = "1.0.200", features = ["derive"] }
 serde_repr = "0.1.19"
-enumflags2 = { version = "0.7.9", features = ["serde"] }
+bitflags = "2.13.2"
 static_assertions = "1.1.0"
 
 [dev-dependencies]

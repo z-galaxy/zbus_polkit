@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &subject,
         "org.zbus.BeAwesome",
         &std::collections::HashMap::new(),
-        CheckAuthorizationFlags::AllowUserInteraction.into(),
+        CheckAuthorizationFlags::ALLOW_USER_INTERACTION,
         "",
     ).await?;
 
