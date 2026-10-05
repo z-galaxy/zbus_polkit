@@ -562,6 +562,7 @@ dependencies = [
 name = "zbus_polkit"
 version = "6.0.0"
 dependencies = [
+ "bitflags",
  "byteorder",
  "enumflags2",
  "futures-util",
