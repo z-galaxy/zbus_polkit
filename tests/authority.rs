@@ -48,7 +48,7 @@ async fn backend_properties() {
     if harness.kind == Backend::Mock {
         assert_eq!(name, mock_authority::BACKEND_NAME);
         assert_eq!(version, mock_authority::BACKEND_VERSION);
-        assert_eq!(features, AuthorityFeatures::TemporaryAuthorization);
+        assert_eq!(features, AuthorityFeatures::TEMPORARY_AUTHORIZATION);
     }
 }
 

@@ -122,7 +122,7 @@ impl MockAuthority {
 
     #[zbus(property)]
     fn backend_features(&self) -> u32 {
-        AuthorityFeatures::TemporaryAuthorization as u32
+        AuthorityFeatures::TEMPORARY_AUTHORIZATION.bits()
     }
 
     #[zbus(property)]
