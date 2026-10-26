@@ -412,6 +412,46 @@ pub trait Authority {
 
 assert_impl_all!(AuthorityProxy<'_>: Send, Sync, Unpin);
 
+/// This D-Bus interface is implemented by an authentication agent, on an object it registers with
+/// [`AuthorityProxy::register_authentication_agent`]. The daemon calls it when an authorization
+/// check needs the user to authenticate, and is its only caller in practice; this proxy is for a
+/// program standing in for the daemon, such as a test of an agent.
+#[zbus::proxy(interface = "org.freedesktop.PolicyKit1.AuthenticationAgent")]
+pub trait AuthenticationAgent {
+    /// Ask the agent to authenticate the user for `action_id`.
+    ///
+    /// The call returns once the authentication has ended, with an error in the [`Error`] domain
+    /// if it did not succeed.
+    ///
+    /// # Arguments
+    ///
+    /// * `action_id` - The action the user is authenticating for.
+    ///
+    /// * `message` - The message to show the user, in the agent's locale.
+    ///
+    /// * `icon_name` - The name of an icon to show with it, or empty for none.
+    ///
+    /// * `details` - The details given to `CheckAuthorization()`, plus what the daemon adds.
+    ///
+    /// * `cookie` - What names this authentication to the daemon.
+    ///
+    /// * `identities` - Who may authenticate for the action.
+    fn begin_authentication(
+        &self,
+        action_id: &str,
+        message: &str,
+        icon_name: &str,
+        details: &HashMap<&str, &str>,
+        cookie: &str,
+        identities: &[Identity<'_>],
+    ) -> Result<(), Error>;
+
+    /// Stop the authentication started with `cookie`, if it is still running.
+    fn cancel_authentication(&self, cookie: &str) -> Result<(), Error>;
+}
+
+assert_impl_all!(AuthenticationAgentProxy<'_>: Send, Sync, Unpin);
+
 // Formats like the `Debug` impl that the `bitflags!` macro generates for a flag set it defines
 // itself, e.g. `AuthorityFeatures(TEMPORARY_AUTHORIZATION | 0x2)`, or `AuthorityFeatures(0x0)` for
 // the empty set. The macro does not generate it for the `impl` form used above, so that the type
