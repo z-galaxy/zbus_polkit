@@ -1,6 +1,6 @@
 [package]
 name = "zbus_polkit"
-version = "6.0.0"
+version = "7.0.0"
 authors = [
     "Marc-André Lureau <marcandre.lureau@redhat.com>",
     "Zeeshan Ali Khan <zeenix@gmail.com>",
