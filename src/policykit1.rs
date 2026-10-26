@@ -6,6 +6,8 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use static_assertions::assert_impl_all;
 use zbus::{fdo, Basic, OwnedVariant, Type, Variant};
 
+mod identity;
+pub use identity::Identity;
 mod subject;
 pub use subject::Subject;
 
@@ -144,23 +146,6 @@ pub struct TemporaryAuthorization {
 }
 
 assert_impl_all!(TemporaryAuthorization: Send, Sync, Unpin);
-
-/// This struct describes identities such as UNIX users and UNIX groups. It is typically used to
-/// check if a given process is authorized for an action.
-///
-/// The following kinds of identities are known:
-///
-/// * Unix User. `identity_kind` should be set to `unix-user` with key uid (of type uint32).
-///
-/// * Unix Group. `identity_kind` should be set to `unix-group` with key gid (of type uint32).
-#[derive(Debug, Type, Serialize)]
-pub struct Identity<'a> {
-    pub identity_kind: &'a str,
-
-    pub identity_details: &'a HashMap<&'a str, Variant<'a>>,
-}
-
-assert_impl_all!(Identity<'_>: Send, Sync, Unpin);
 
 /// This struct describes actions registered with the PolicyKit daemon.
 #[derive(Debug, Type, Serialize, Deserialize)]
@@ -472,7 +457,6 @@ mod tests {
     // https://polkit.pages.freedesktop.org/polkit/eggdbus-interface-org.freedesktop.PolicyKit1.Authority.html
     #[test]
     fn wire_signatures_match_polkit() {
-        assert_eq!(<Identity<'_>>::SIGNATURE.to_string(), "(sa{sv})");
         assert_eq!(
             TemporaryAuthorization::SIGNATURE.to_string(),
             "(ss(sa{sv})tt)"
