@@ -16,8 +16,10 @@ categories = ["os::unix-apis"]
 readme = "README.md"
 
 [features]
-default = ["zbus/default-rt"]
+default = ["zbus/default-rt", "agent"]
 tokio = ["zbus/tokio"]
+# Being an authentication agent takes zbus's object server, which nothing else here needs.
+agent = ["zbus/service"]
 
 [dependencies]
 zbus = { version = "6.0.0", default-features = false, features = [

@@ -6,6 +6,8 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use static_assertions::assert_impl_all;
 use zbus::{fdo, Basic, OwnedVariant, Type, Variant};
 
+#[cfg(feature = "agent")]
+pub mod agent;
 mod identity;
 pub use identity::Identity;
 mod subject;
