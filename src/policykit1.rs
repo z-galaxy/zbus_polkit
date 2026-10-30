@@ -6,6 +6,10 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use static_assertions::assert_impl_all;
 use zbus::{fdo, Basic, OwnedVariant, Type, Variant};
 
+#[cfg(feature = "agent")]
+pub mod agent;
+mod identity;
+pub use identity::OwnedIdentity;
 mod subject;
 pub use subject::Subject;
 
@@ -153,6 +157,9 @@ assert_impl_all!(TemporaryAuthorization: Send, Sync, Unpin);
 /// * Unix User. `identity_kind` should be set to `unix-user` with key uid (of type uint32).
 ///
 /// * Unix Group. `identity_kind` should be set to `unix-group` with key gid (of type uint32).
+///
+/// This type only encodes. [`OwnedIdentity`] is its owned counterpart, which decodes as well and
+/// has constructors for the kinds polkit documents.
 #[derive(Debug, Type, Serialize)]
 pub struct Identity<'a> {
     pub identity_kind: &'a str,
@@ -222,6 +229,38 @@ pub struct AuthorizationResult {
 }
 
 assert_impl_all!(AuthorizationResult: Send, Sync, Unpin);
+
+/// The errors polkit replies with, in the `org.freedesktop.PolicyKit1.Error` domain.
+///
+/// A call on [`AuthorityProxy`] that the daemon refuses fails with one of these, and an
+/// authentication agent replies with one when an authentication does not end in success. A
+/// [`zbus::Error`] carrying a method error of this domain converts into the variant of its name;
+/// any other error lands in [`Error::ZBus`].
+#[derive(Debug, PartialEq, zbus::DBusError)]
+#[zbus(prefix = "org.freedesktop.PolicyKit1.Error")]
+pub enum Error {
+    /// A D-Bus error outside the polkit domain.
+    #[zbus(error)]
+    ZBus(zbus::Error),
+
+    /// The operation failed.
+    Failed(String),
+
+    /// The operation was cancelled.
+    ///
+    /// From an authentication agent, this is how the daemon learns that the user dismissed the
+    /// request, which it reports as `polkit.dismissed` in the result the mechanism gets.
+    Cancelled(String),
+
+    /// The operation is not supported.
+    NotSupported(String),
+
+    /// The caller is not authorized to perform the operation.
+    NotAuthorized(String),
+
+    /// The `cancellation_id` passed to `CheckAuthorization()` is already in use by the caller.
+    CancellationIdNotUnique(String),
+}
 
 /// This D-Bus interface is implemented by the /org/freedesktop/PolicyKit1/Authority object on the
 /// well-known name org.freedesktop.PolicyKit1 on the system message bus.
@@ -395,6 +434,46 @@ pub trait Authority {
 
 assert_impl_all!(AuthorityProxy<'_>: Send, Sync, Unpin);
 
+/// This D-Bus interface is implemented by an authentication agent, on an object it registers with
+/// [`AuthorityProxy::register_authentication_agent`]. The daemon calls it when an authorization
+/// check needs the user to authenticate, and is its only caller in practice; this proxy is for a
+/// program standing in for the daemon, such as a test of an agent.
+#[zbus::proxy(interface = "org.freedesktop.PolicyKit1.AuthenticationAgent")]
+pub trait AuthenticationAgent {
+    /// Ask the agent to authenticate the user for `action_id`.
+    ///
+    /// The call returns once the authentication has ended, with an error in the [`Error`] domain
+    /// if it did not succeed.
+    ///
+    /// # Arguments
+    ///
+    /// * `action_id` - The action the user is authenticating for.
+    ///
+    /// * `message` - The message to show the user, in the agent's locale.
+    ///
+    /// * `icon_name` - The name of an icon to show with it, or empty for none.
+    ///
+    /// * `details` - The details given to `CheckAuthorization()`, plus what the daemon adds.
+    ///
+    /// * `cookie` - What names this authentication to the daemon.
+    ///
+    /// * `identities` - Who may authenticate for the action.
+    fn begin_authentication(
+        &self,
+        action_id: &str,
+        message: &str,
+        icon_name: &str,
+        details: &HashMap<&str, &str>,
+        cookie: &str,
+        identities: &[OwnedIdentity],
+    ) -> Result<(), Error>;
+
+    /// Stop the authentication started with `cookie`, if it is still running.
+    fn cancel_authentication(&self, cookie: &str) -> Result<(), Error>;
+}
+
+assert_impl_all!(AuthenticationAgentProxy<'_>: Send, Sync, Unpin);
+
 // Formats like the `Debug` impl that the `bitflags!` macro generates for a flag set it defines
 // itself, e.g. `AuthorityFeatures(TEMPORARY_AUTHORIZATION | 0x2)`, or `AuthorityFeatures(0x0)` for
 // the empty set. The macro does not generate it for the `impl` form used above, so that the type
@@ -428,7 +507,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use zbus::wire::{serialized::Context, to_bytes, LE};
+    use zbus::{
+        message::Message,
+        wire::{serialized::Context, to_bytes, LE},
+        DBusError as _,
+    };
 
     use super::*;
 
@@ -604,5 +687,54 @@ mod tests {
             format!("{:#?}", AuthorityFeatures::empty()),
             "AuthorityFeatures(\n    0x0,\n)"
         );
+    }
+
+    // Error names as polkit registers them (polkiterror.c), plus the one the daemon emits on its
+    // own for a cancellation id already in use (polkitbackendauthority.c).
+    #[test]
+    fn errors_are_in_the_polkit_domain() {
+        let cases = [
+            (Error::Failed("x".into()), "Failed"),
+            (Error::Cancelled("x".into()), "Cancelled"),
+            (Error::NotSupported("x".into()), "NotSupported"),
+            (Error::NotAuthorized("x".into()), "NotAuthorized"),
+            (
+                Error::CancellationIdNotUnique("x".into()),
+                "CancellationIdNotUnique",
+            ),
+        ];
+
+        for (error, name) in cases {
+            assert_eq!(
+                error.name().as_str(),
+                format!("org.freedesktop.PolicyKit1.Error.{name}")
+            );
+            assert_eq!(error.description(), Some("x"));
+        }
+    }
+
+    // A method error of the polkit domain converts into the variant of its name, message included;
+    // anything else is kept as it is.
+    #[test]
+    fn polkit_method_errors_convert_into_their_variant() {
+        let call = Message::method_call("/org/example/Object", "Frobnicate")
+            .build(&())
+            .unwrap();
+        let reply = Message::error(&call.header(), "org.freedesktop.PolicyKit1.Error.Cancelled")
+            .build(&("dismissed",))
+            .unwrap();
+        let error = zbus::Error::MethodError(
+            "org.freedesktop.PolicyKit1.Error.Cancelled"
+                .try_into()
+                .unwrap(),
+            Some("dismissed".into()),
+            reply,
+        );
+
+        assert_eq!(Error::from(error), Error::Cancelled("dismissed".into()));
+        assert!(matches!(
+            Error::from(zbus::Error::MissingField),
+            Error::ZBus(zbus::Error::MissingField)
+        ));
     }
 }
