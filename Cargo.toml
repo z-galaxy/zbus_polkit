@@ -16,8 +16,10 @@ categories = ["os::unix-apis"]
 readme = "README.md"
 
 [features]
-default = ["zbus/default-rt"]
+default = ["zbus/default-rt", "agent"]
 tokio = ["zbus/tokio"]
+# Being an authentication agent takes zbus's object server, which nothing else here needs.
+agent = ["zbus/service"]
 
 [dependencies]
 zbus = { version = "6.0.0", default-features = false, features = [
@@ -40,6 +42,7 @@ tokio = { version = "1", features = [
     "net",
     "rt",
     "rt-multi-thread",
+    "sync",
     "time",
 ] }
 # The tests stand up an object server over a p2p connection, which the library itself does not
