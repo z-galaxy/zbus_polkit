@@ -126,10 +126,10 @@ assert_impl_all!(AuthorityFeatures: Send, Sync, Unpin);
 #[derive(Debug, Type, Deserialize, Serialize)]
 pub struct TemporaryAuthorization {
     /// An opaque identifier for the temporary authorization.
-    pub id: String,
+    pub id: Box<str>,
 
     /// The action the temporary authorization is for.
-    pub action_id: String,
+    pub action_id: Box<str>,
 
     /// The subject the temporary authorization is for.
     pub subject: Subject,
@@ -151,22 +151,22 @@ assert_impl_all!(TemporaryAuthorization: Send, Sync, Unpin);
 #[derive(Debug, Type, Serialize, Deserialize)]
 pub struct ActionDescription {
     /// Action Identifier.
-    pub action_id: String,
+    pub action_id: Box<str>,
 
     /// Localized description of the action.
-    pub description: String,
+    pub description: Box<str>,
 
     /// Localized message to be displayed when making the user authenticate for an action.
-    pub message: String,
+    pub message: Box<str>,
 
     /// Name of the provider of the action or the empty string.
-    pub vendor_name: String,
+    pub vendor_name: Box<str>,
 
     /// A URL pointing to a place with more information about the action or the empty string.
-    pub vendor_url: String,
+    pub vendor_url: Box<str>,
 
     /// The themed icon describing the action or the empty string if no icon is set.
-    pub icon_name: String,
+    pub icon_name: Box<str>,
 
     /// A value from the ImplicitAuthorization. enumeration for implicit authorizations that apply
     /// to any Subject.
@@ -181,7 +181,7 @@ pub struct ActionDescription {
     pub implicit_active: ImplicitAuthorization,
 
     /// Annotations for the action.
-    pub annotations: HashMap<String, String>,
+    pub annotations: HashMap<Box<str>, Box<str>>,
 }
 
 assert_impl_all!(ActionDescription: Send, Sync, Unpin);
@@ -203,7 +203,7 @@ pub struct AuthorizationResult {
     /// authorization will be retained after authentication (if is_challenge is TRUE)),
     /// `polkit.dismissed` (Set to a non-empty string if the authentication dialog was dismissed by
     /// the user).
-    pub details: std::collections::HashMap<String, String>,
+    pub details: HashMap<Box<str>, Box<str>>,
 }
 
 assert_impl_all!(AuthorizationResult: Send, Sync, Unpin);
