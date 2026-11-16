@@ -425,7 +425,7 @@ mod tests {
             )
             .unwrap(),
         ] {
-            assert_eq!(back.id, "x");
+            assert_eq!(&*back.id, "x");
             assert_eq!(back.subject.kind(), "unix-session");
         }
     }

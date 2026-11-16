@@ -69,7 +69,7 @@ async fn enumerate_actions() {
 
     if harness.kind == Backend::Mock {
         assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0].action_id, mock_authority::ACTION_ID);
+        assert_eq!(&*actions[0].action_id, mock_authority::ACTION_ID);
         assert_eq!(
             actions[0].implicit_any,
             ImplicitAuthorization::NotAuthorized
@@ -94,7 +94,7 @@ async fn check_authorization() {
     // polkit rejects an action it does not know with `org.freedesktop.PolicyKit1.Error.Failed`, so
     // ask the real daemon about one it just said it has.
     let action_id = match harness.kind {
-        Backend::Mock => mock_authority::ACTION_ID.to_string(),
+        Backend::Mock => mock_authority::ACTION_ID.into(),
         Backend::Real => {
             let actions = proxy.enumerate_actions("").await.unwrap();
 
@@ -129,7 +129,7 @@ async fn check_authorization() {
             result
                 .details
                 .get("polkit.temporary_authorization_id")
-                .map(String::as_str),
+                .map(AsRef::as_ref),
             Some(mock_authority::TEMPORARY_AUTHORIZATION_ID)
         );
 
@@ -155,8 +155,8 @@ async fn enumerate_temporary_authorizations() {
                 .unwrap();
 
             assert_eq!(auths.len(), 1);
-            assert_eq!(auths[0].id, mock_authority::TEMPORARY_AUTHORIZATION_ID);
-            assert_eq!(auths[0].action_id, mock_authority::ACTION_ID);
+            assert_eq!(&*auths[0].id, mock_authority::TEMPORARY_AUTHORIZATION_ID);
+            assert_eq!(&*auths[0].action_id, mock_authority::ACTION_ID);
             assert_eq!(auths[0].subject.kind(), "unix-process");
             assert_eq!(auths[0].time_obtained, 1);
             assert_eq!(auths[0].time_expires, 2);
