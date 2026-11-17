@@ -1,4 +1,4 @@
-//! The text of an identity.
+//! The text of an identity or a subject.
 
 use std::{fmt, ops::Deref, sync::Arc};
 
