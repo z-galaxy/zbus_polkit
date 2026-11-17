@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use zbus::{as_variant, Type};
 
-use super::text::Text;
+use crate::policykit1::text::Text;
 
 /// The details of a `unix-netgroup` identity.
 // zbus's dict derives do not take a type with a lifetime, so this goes through serde's, which

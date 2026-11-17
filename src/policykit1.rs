@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt};
 
 use bitflags::{parser, Flags};
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use static_assertions::assert_impl_all;
 use zbus::{fdo, Basic, OwnedVariant, Type, Variant};
@@ -12,6 +12,7 @@ mod identity;
 pub use identity::Identity;
 mod subject;
 pub use subject::Subject;
+mod text;
 
 /// Flags used in the CheckAuthorization() method.
 ///
@@ -134,7 +135,8 @@ pub struct TemporaryAuthorization {
     pub action_id: Box<str>,
 
     /// The subject the temporary authorization is for.
-    pub subject: Subject,
+    #[serde(deserialize_with = "owned_subject")]
+    pub subject: Subject<'static>,
 
     /// When the temporary authorization was obtained, in seconds since the Epoch Jan 1, 1970 0:00
     /// UTC. Note that the PolicyKit daemon is using monotonic time internally so the returned
@@ -319,7 +321,7 @@ pub trait Authority {
     /// Returns: An `AuthorizationResult` structure.
     fn check_authorization(
         &self,
-        subject: &Subject,
+        subject: &Subject<'_>,
         action_id: &str,
         details: &std::collections::HashMap<&str, &str>,
         flags: CheckAuthorizationFlags,
@@ -336,7 +338,7 @@ pub trait Authority {
     /// Retrieves all temporary authorizations that applies to subject.
     fn enumerate_temporary_authorizations(
         &self,
-        subject: &Subject,
+        subject: &Subject<'_>,
     ) -> zbus::Result<Vec<TemporaryAuthorization>>;
 
     /// Register an authentication agent.
@@ -355,7 +357,7 @@ pub trait Authority {
     /// caller.
     fn register_authentication_agent(
         &self,
-        subject: &Subject,
+        subject: &Subject<'_>,
         locale: &str,
         object_path: &str,
     ) -> zbus::Result<()>;
@@ -366,7 +368,7 @@ pub trait Authority {
     /// instead.
     fn register_authentication_agent_with_options(
         &self,
-        subject: &Subject,
+        subject: &Subject<'_>,
         locale: &str,
         object_path: &str,
         options: &std::collections::HashMap<&str, Variant<'_>>,
@@ -376,7 +378,7 @@ pub trait Authority {
     fn revoke_temporary_authorization_by_id(&self, id: &str) -> zbus::Result<()>;
 
     /// Revokes all temporary authorizations that applies to `subject`.
-    fn revoke_temporary_authorizations(&self, subject: &Subject) -> zbus::Result<()>;
+    fn revoke_temporary_authorizations(&self, subject: &Subject<'_>) -> zbus::Result<()>;
 
     /// Unregister an authentication agent.
     ///
@@ -387,7 +389,7 @@ pub trait Authority {
     /// * `object_path` - The object_path passed to `RegisterAuthenticationAgent()`.
     fn unregister_authentication_agent(
         &self,
-        subject: &Subject,
+        subject: &Subject<'_>,
         object_path: &str,
     ) -> zbus::Result<()>;
 
@@ -483,6 +485,18 @@ where
             parser::to_writer(self.0, f)
         }
     }
+}
+
+// A `Subject` borrows from what it is decoded from, but what a proxy returns has to own all of
+// it, so the subject of a `TemporaryAuthorization` is made owned as it is decoded, which
+// duplicates any pidfd it holds.
+fn owned_subject<'de, D>(deserializer: D) -> Result<Subject<'static>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Subject::deserialize(deserializer)?
+        .try_into_owned()
+        .map_err(de::Error::custom)
 }
 
 #[cfg(test)]

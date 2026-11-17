@@ -1,6 +1,5 @@
 //! Identities used by polkit to specify who may authenticate.
 
-mod text;
 mod unix_group;
 mod unix_netgroup;
 mod unix_user;
@@ -11,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use static_assertions::assert_impl_all;
 use zbus::{OwnedVariant, Str, Type};
 
-use self::{text::Text, unix_group::UnixGroup, unix_netgroup::UnixNetgroup, unix_user::UnixUser};
+use self::{unix_group::UnixGroup, unix_netgroup::UnixNetgroup, unix_user::UnixUser};
+use super::text::Text;
 
 /// An identity polkit can authenticate as: a UNIX user, group or netgroup.
 ///
