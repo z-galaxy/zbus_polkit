@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Pid::from_raw(std::process::id() as i32).ok_or("pid 0")?,
         PidfdFlags::empty(),
     )?;
-    let subject = Subject::new_for_owner(&pidfd, rustix::process::getuid().as_raw())?;
+    let subject = Subject::new_for_owner(&pidfd, rustix::process::getuid().as_raw());
     let result = proxy.check_authorization(
         &subject,
         "org.zbus.BeAwesome",

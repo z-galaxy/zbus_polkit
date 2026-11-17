@@ -100,12 +100,12 @@ impl MockAuthority {
 
     async fn enumerate_temporary_authorizations(
         &self,
-        subject: Subject,
+        subject: Subject<'_>,
     ) -> Vec<TemporaryAuthorization> {
         vec![TemporaryAuthorization {
             id: TEMPORARY_AUTHORIZATION_ID.into(),
             action_id: ACTION_ID.into(),
-            subject,
+            subject: subject.try_into_owned().expect("own the subject"),
             time_obtained: 1,
             time_expires: 2,
         }]
@@ -115,7 +115,7 @@ impl MockAuthority {
 
     async fn revoke_temporary_authorization_by_id(&self, _id: String) {}
 
-    async fn revoke_temporary_authorizations(&self, _subject: Subject) {}
+    async fn revoke_temporary_authorizations(&self, _subject: Subject<'_>) {}
 
     #[zbus(signal)]
     pub async fn changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;

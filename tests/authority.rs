@@ -281,7 +281,7 @@ impl Harness {
     }
 
     /// A `unix-process` subject for the test process itself.
-    fn own_process_subject() -> Subject {
+    fn own_process_subject() -> Subject<'static> {
         Subject::new_for_pid(process::id(), None, None).unwrap()
     }
 
