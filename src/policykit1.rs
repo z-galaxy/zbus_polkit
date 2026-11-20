@@ -260,22 +260,22 @@ pub enum Error {
     ZBus(zbus::Error),
 
     /// The operation failed.
-    Failed(String),
+    Failed(Box<str>),
 
     /// The operation was cancelled.
     ///
     /// From an authentication agent, this is how the daemon learns that the user dismissed the
     /// request, which it reports as `polkit.dismissed` in the result the mechanism gets.
-    Cancelled(String),
+    Cancelled(Box<str>),
 
     /// The operation is not supported.
-    NotSupported(String),
+    NotSupported(Box<str>),
 
     /// The caller is not authorized to perform the operation.
-    NotAuthorized(String),
+    NotAuthorized(Box<str>),
 
     /// The `cancellation_id` passed to `CheckAuthorization()` is already in use by the caller.
-    CancellationIdNotUnique(String),
+    CancellationIdNotUnique(Box<str>),
 }
 
 /// This D-Bus interface is implemented by the /org/freedesktop/PolicyKit1/Authority object on the

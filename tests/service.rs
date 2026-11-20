@@ -292,7 +292,7 @@ impl Authority {
     fn keep(&mut self, subject: Subject<'_>) -> Result<(), Error> {
         let subject = subject
             .try_into_owned()
-            .map_err(|e| Error::Failed(e.to_string()))?;
+            .map_err(|e| Error::Failed(e.to_string().into()))?;
         self.subjects.push(subject);
 
         Ok(())
@@ -316,7 +316,7 @@ impl Authority {
             .collect();
         self.checks.push((details, flags));
         if action_id != self.action.id {
-            return Err(Error::Failed(format!("no action {action_id}")));
+            return Err(Error::Failed(format!("no action {action_id}").into()));
         }
 
         let granted = &self.temporary_authorizations[0];
@@ -365,7 +365,7 @@ impl Authority {
                     subject: granted
                         .subject
                         .try_clone()
-                        .map_err(|e| Error::Failed(e.to_string()))?,
+                        .map_err(|e| Error::Failed(e.to_string().into()))?,
                     time_obtained: granted.time_obtained,
                     time_expires: granted.time_expires,
                 })
