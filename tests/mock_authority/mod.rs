@@ -67,7 +67,7 @@ impl MockAuthority {
         _details: HashMap<String, String>,
         _flags: CheckAuthorizationFlags,
         _cancellation_id: String,
-    ) -> AuthorizationResult {
+    ) -> AuthorizationResult<'static> {
         let (_kind, details) = subject;
         self.last_uid_signature = details
             .get("uid")
@@ -83,7 +83,7 @@ impl MockAuthority {
         }
     }
 
-    async fn enumerate_actions(&self, _locale: String) -> Vec<ActionDescription> {
+    async fn enumerate_actions(&self, _locale: String) -> Vec<ActionDescription<'static>> {
         vec![ActionDescription {
             action_id: ACTION_ID.into(),
             description: "Be awesome".into(),
@@ -101,7 +101,7 @@ impl MockAuthority {
     async fn enumerate_temporary_authorizations(
         &self,
         subject: Subject<'_>,
-    ) -> Vec<TemporaryAuthorization> {
+    ) -> Vec<TemporaryAuthorization<'static>> {
         vec![TemporaryAuthorization {
             id: TEMPORARY_AUTHORIZATION_ID.into(),
             action_id: ACTION_ID.into(),

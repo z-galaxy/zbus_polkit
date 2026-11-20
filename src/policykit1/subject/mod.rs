@@ -710,11 +710,11 @@ mod tests {
             time_expires: 2,
         };
         for back in [
-            serde_json::from_str::<TemporaryAuthorization>(
+            serde_json::from_str::<TemporaryAuthorization<'_>>(
                 &serde_json::to_string(&authorization).unwrap(),
             )
             .unwrap(),
-            serde_json::from_value::<TemporaryAuthorization>(
+            serde_json::from_value::<TemporaryAuthorization<'_>>(
                 serde_json::to_value(&authorization).unwrap(),
             )
             .unwrap(),

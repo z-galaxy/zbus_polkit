@@ -26,7 +26,7 @@ use std::{
 
 use futures_util::StreamExt;
 use mock_authority::MockAuthority;
-use zbus::{object_server::InterfaceRef, Connection};
+use zbus::{object_server::InterfaceRef, Connection, Str};
 use zbus_polkit::policykit1::{
     AuthorityFeatures, AuthorityProxy, CheckAuthorizationFlags, ImplicitAuthorization, Subject,
 };
@@ -129,7 +129,7 @@ async fn check_authorization() {
             result
                 .details
                 .get("polkit.temporary_authorization_id")
-                .map(AsRef::as_ref),
+                .map(Str::as_str),
             Some(mock_authority::TEMPORARY_AUTHORIZATION_ID)
         );
 

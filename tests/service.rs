@@ -1,6 +1,7 @@
 //! Serve `org.freedesktop.PolicyKit1.Authority` with this crate's types, as a polkit
 //! implementation would, and call it through `AuthorityProxy`: what the proxy sends has to arrive
-//! as the types it was sent as, and what the service replies has to come back as it was sent.
+//! as the types it was sent as, and what the service replies, borrowing it from what it keeps, has
+//! to come back as it was sent.
 
 #![cfg(unix)]
 
@@ -162,7 +163,18 @@ async fn replies_come_back_as_they_were_sent() {
 
     assert_eq!(
         proxy.enumerate_actions("").await.unwrap(),
-        [Authority::action()]
+        [ActionDescription {
+            action_id: ACTION_ID.into(),
+            description: DESCRIPTION.into(),
+            message: MESSAGE.into(),
+            vendor_name: "".into(),
+            vendor_url: "".into(),
+            icon_name: "".into(),
+            implicit_any: ImplicitAuthorization::NotAuthorized,
+            implicit_inactive: ImplicitAuthorization::AuthenticationRequired,
+            implicit_active: ImplicitAuthorization::Authorized,
+            annotations: HashMap::new(),
+        }]
     );
 
     let auths = proxy
@@ -172,8 +184,8 @@ async fn replies_come_back_as_they_were_sent() {
     let [auth] = &auths[..] else {
         panic!("expected one temporary authorization, got {auths:?}");
     };
-    assert_eq!(&*auth.id, TEMPORARY_AUTHORIZATION_ID);
-    assert_eq!(&*auth.action_id, ACTION_ID);
+    assert_eq!(auth.id, TEMPORARY_AUTHORIZATION_ID);
+    assert_eq!(auth.action_id, ACTION_ID);
     assert_eq!(auth.subject.session_id(), Some("c2"));
     assert_eq!((auth.time_obtained, auth.time_expires), (1, 2));
 
@@ -184,9 +196,12 @@ async fn replies_come_back_as_they_were_sent() {
 }
 
 /// A polkit implementation, as far as these tests need one: it keeps what the calls brought, and
-/// answers from the one action it knows.
-#[derive(Default)]
+/// answers from the one action and the one temporary authorization it knows.
 struct Authority {
+    /// The one action, as its policy describes it.
+    action: Action,
+    /// The temporary authorizations it has granted.
+    temporary_authorizations: Vec<TemporaryAuthorization<'static>>,
     /// The subject of each call that took one, made owned.
     subjects: Vec<Subject<'static>>,
     /// The details and flags of each `CheckAuthorization`.
@@ -198,18 +213,27 @@ struct Authority {
 }
 
 impl Authority {
-    fn action() -> ActionDescription {
-        ActionDescription {
-            action_id: ACTION_ID.into(),
-            description: "Be awesome".into(),
-            message: "Authentication is required to be awesome".into(),
-            vendor_name: "zbus".into(),
-            vendor_url: "".into(),
-            icon_name: "".into(),
-            implicit_any: ImplicitAuthorization::NotAuthorized,
-            implicit_inactive: ImplicitAuthorization::AuthenticationRequired,
-            implicit_active: ImplicitAuthorization::Authorized,
-            annotations: HashMap::new(),
+    fn new() -> Self {
+        Self {
+            action: Action {
+                id: ACTION_ID.into(),
+                description: DESCRIPTION.into(),
+                message: MESSAGE.into(),
+                implicit_any: ImplicitAuthorization::NotAuthorized,
+                implicit_inactive: ImplicitAuthorization::AuthenticationRequired,
+                implicit_active: ImplicitAuthorization::Authorized,
+            },
+            temporary_authorizations: vec![TemporaryAuthorization {
+                id: TEMPORARY_AUTHORIZATION_ID.into(),
+                action_id: ACTION_ID.into(),
+                subject: Subject::new_for_unix_session("c2"),
+                time_obtained: 1,
+                time_expires: 2,
+            }],
+            subjects: Vec::new(),
+            checks: Vec::new(),
+            options: HashMap::new(),
+            responses: Vec::new(),
         }
     }
 
@@ -232,39 +256,69 @@ impl Authority {
         details: HashMap<&str, &str>,
         flags: CheckAuthorizationFlags,
         _cancellation_id: &str,
-    ) -> Result<AuthorizationResult, Error> {
+    ) -> Result<AuthorizationResult<'_>, Error> {
         self.keep(subject)?;
         let details = details
             .into_iter()
             .map(|(key, value)| (key.into(), value.into()))
             .collect();
         self.checks.push((details, flags));
-        if action_id != ACTION_ID {
+        if action_id != self.action.id {
             return Err(Error::Failed(format!("no action {action_id}")));
         }
 
-        Ok(authorized())
+        let granted = &self.temporary_authorizations[0];
+        Ok(AuthorizationResult {
+            is_authorized: true,
+            is_challenge: false,
+            details: HashMap::from([(
+                "polkit.temporary_authorization_id".into(),
+                granted.id.as_ref(),
+            )]),
+        })
     }
 
-    async fn enumerate_actions(&self, _locale: &str) -> Vec<ActionDescription> {
-        vec![Self::action()]
+    async fn enumerate_actions(&self, _locale: &str) -> Vec<ActionDescription<'_>> {
+        let action = &self.action;
+
+        vec![ActionDescription {
+            action_id: action.id.as_str().into(),
+            description: action.description.as_str().into(),
+            message: action.message.as_str().into(),
+            vendor_name: "".into(),
+            vendor_url: "".into(),
+            icon_name: "".into(),
+            implicit_any: action.implicit_any,
+            implicit_inactive: action.implicit_inactive,
+            implicit_active: action.implicit_active,
+            annotations: HashMap::new(),
+        }]
     }
 
     async fn enumerate_temporary_authorizations(
         &self,
         subject: Subject<'_>,
-    ) -> Result<Vec<TemporaryAuthorization>, Error> {
+    ) -> Result<Vec<TemporaryAuthorization<'_>>, Error> {
         let Some(session_id) = subject.session_id() else {
             return Err(Error::Failed("not a session".into()));
         };
 
-        Ok(vec![TemporaryAuthorization {
-            id: TEMPORARY_AUTHORIZATION_ID.into(),
-            action_id: ACTION_ID.into(),
-            subject: Subject::new_for_unix_session(String::from(session_id)),
-            time_obtained: 1,
-            time_expires: 2,
-        }])
+        self.temporary_authorizations
+            .iter()
+            .filter(|granted| granted.subject.session_id() == Some(session_id))
+            .map(|granted| {
+                Ok(TemporaryAuthorization {
+                    id: granted.id.as_ref(),
+                    action_id: granted.action_id.as_ref(),
+                    subject: granted
+                        .subject
+                        .try_clone()
+                        .map_err(|e| Error::Failed(e.to_string()))?,
+                    time_obtained: granted.time_obtained,
+                    time_expires: granted.time_expires,
+                })
+            })
+            .collect()
     }
 
     async fn register_authentication_agent(
@@ -321,7 +375,17 @@ impl Authority {
     }
 }
 
-fn authorized() -> AuthorizationResult {
+/// An action, as the policy of a service describes it.
+struct Action {
+    id: String,
+    description: String,
+    message: String,
+    implicit_any: ImplicitAuthorization,
+    implicit_inactive: ImplicitAuthorization,
+    implicit_active: ImplicitAuthorization,
+}
+
+fn authorized() -> AuthorizationResult<'static> {
     AuthorizationResult {
         is_authorized: true,
         is_challenge: false,
@@ -344,7 +408,7 @@ impl Harness {
         let server = connection::Builder::unix_stream(server_stream)
             .server(Guid::generate())
             .p2p()
-            .serve_at(AUTHORITY_PATH, Authority::default())
+            .serve_at(AUTHORITY_PATH, Authority::new())
             .build();
         let client = connection::Builder::unix_stream(client_stream)
             .p2p()
@@ -373,6 +437,8 @@ impl Harness {
 }
 
 const ACTION_ID: &str = "org.zbus.BeAwesome";
+const DESCRIPTION: &str = "Be awesome";
+const MESSAGE: &str = "Authentication is required to be awesome";
 const TEMPORARY_AUTHORIZATION_ID: &str = "tmp-1";
 const AUTHORITY_PATH: &str = "/org/freedesktop/PolicyKit1/Authority";
 const AGENT_PATH: &str = "/org/freedesktop/PolicyKit1/AuthenticationAgent";

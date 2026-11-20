@@ -1,10 +1,13 @@
 use std::{collections::HashMap, fmt};
 
 use bitflags::{parser, Flags};
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{
+    de::{self, DeserializeOwned, MapAccess, Visitor},
+    Deserialize, Deserializer, Serialize,
+};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use static_assertions::assert_impl_all;
-use zbus::{fdo, Basic, OwnedVariant, Type, Variant};
+use zbus::{fdo, Basic, OwnedVariant, Str, Type, Variant};
 
 #[cfg(feature = "agent")]
 pub mod agent;
@@ -125,17 +128,23 @@ assert_impl_all!(AuthorityFeatures: Send, Sync, Unpin);
 
 /// Details of a temporary authorization as provided by the /org/freedesktop/PolicyKit1/Authority
 /// object in the system bus.
+///
+/// Its text and its subject can be borrowed, so that a service can reply with the temporary
+/// authorizations it keeps without copying them. A decoded one owns all it holds, as what
+/// [`AuthorityProxy`] returns has to.
 #[derive(Debug, Type, Deserialize, Serialize)]
-pub struct TemporaryAuthorization {
+pub struct TemporaryAuthorization<'a> {
     /// An opaque identifier for the temporary authorization.
-    pub id: Box<str>,
+    #[serde(deserialize_with = "owned")]
+    pub id: Str<'a>,
 
     /// The action the temporary authorization is for.
-    pub action_id: Box<str>,
+    #[serde(deserialize_with = "owned")]
+    pub action_id: Str<'a>,
 
     /// The subject the temporary authorization is for.
     #[serde(deserialize_with = "owned_subject")]
-    pub subject: Subject<'static>,
+    pub subject: Subject<'a>,
 
     /// When the temporary authorization was obtained, in seconds since the Epoch Jan 1, 1970 0:00
     /// UTC. Note that the PolicyKit daemon is using monotonic time internally so the returned
@@ -148,28 +157,38 @@ pub struct TemporaryAuthorization {
     pub time_expires: u64,
 }
 
-assert_impl_all!(TemporaryAuthorization: Send, Sync, Unpin);
+assert_impl_all!(TemporaryAuthorization<'_>: Send, Sync, Unpin);
+assert_impl_all!(TemporaryAuthorization<'static>: DeserializeOwned);
 
 /// This struct describes actions registered with the PolicyKit daemon.
+///
+/// Its text can be borrowed, so that a service can describe the actions it keeps without copying
+/// them. A decoded one owns all it holds, as what [`AuthorityProxy`] returns has to.
 #[derive(Debug, Clone, PartialEq, Eq, Type, Serialize, Deserialize)]
-pub struct ActionDescription {
+pub struct ActionDescription<'a> {
     /// Action Identifier.
-    pub action_id: Box<str>,
+    #[serde(deserialize_with = "owned")]
+    pub action_id: Str<'a>,
 
     /// Localized description of the action.
-    pub description: Box<str>,
+    #[serde(deserialize_with = "owned")]
+    pub description: Str<'a>,
 
     /// Localized message to be displayed when making the user authenticate for an action.
-    pub message: Box<str>,
+    #[serde(deserialize_with = "owned")]
+    pub message: Str<'a>,
 
     /// Name of the provider of the action or the empty string.
-    pub vendor_name: Box<str>,
+    #[serde(deserialize_with = "owned")]
+    pub vendor_name: Str<'a>,
 
     /// A URL pointing to a place with more information about the action or the empty string.
-    pub vendor_url: Box<str>,
+    #[serde(deserialize_with = "owned")]
+    pub vendor_url: Str<'a>,
 
     /// The themed icon describing the action or the empty string if no icon is set.
-    pub icon_name: Box<str>,
+    #[serde(deserialize_with = "owned")]
+    pub icon_name: Str<'a>,
 
     /// A value from the ImplicitAuthorization. enumeration for implicit authorizations that apply
     /// to any Subject.
@@ -184,14 +203,19 @@ pub struct ActionDescription {
     pub implicit_active: ImplicitAuthorization,
 
     /// Annotations for the action.
-    pub annotations: HashMap<Box<str>, Box<str>>,
+    #[serde(deserialize_with = "owned_map")]
+    pub annotations: HashMap<Str<'a>, Str<'a>>,
 }
 
-assert_impl_all!(ActionDescription: Send, Sync, Unpin);
+assert_impl_all!(ActionDescription<'_>: Send, Sync, Unpin);
+assert_impl_all!(ActionDescription<'static>: DeserializeOwned);
 
 /// Describes the result of calling `CheckAuthorization()`
+///
+/// Its details can be borrowed, so that a service can reply with ones it keeps without copying
+/// them. A decoded one owns all it holds, as what [`AuthorityProxy`] returns has to.
 #[derive(Debug, Clone, PartialEq, Eq, Type, Serialize, Deserialize)]
-pub struct AuthorizationResult {
+pub struct AuthorizationResult<'a> {
     /// TRUE if the given `Subject` is authorized for the given action.
     pub is_authorized: bool,
 
@@ -206,10 +230,12 @@ pub struct AuthorizationResult {
     /// authorization will be retained after authentication (if is_challenge is TRUE)),
     /// `polkit.dismissed` (Set to a non-empty string if the authentication dialog was dismissed by
     /// the user).
-    pub details: HashMap<Box<str>, Box<str>>,
+    #[serde(deserialize_with = "owned_map")]
+    pub details: HashMap<Str<'a>, Str<'a>>,
 }
 
-assert_impl_all!(AuthorizationResult: Send, Sync, Unpin);
+assert_impl_all!(AuthorizationResult<'_>: Send, Sync, Unpin);
+assert_impl_all!(AuthorizationResult<'static>: DeserializeOwned);
 
 /// The errors polkit replies with, in the `org.freedesktop.PolicyKit1.Error` domain.
 ///
@@ -325,20 +351,20 @@ pub trait Authority {
         details: &std::collections::HashMap<&str, &str>,
         flags: CheckAuthorizationFlags,
         cancellation_id: &str,
-    ) -> zbus::Result<AuthorizationResult>;
+    ) -> zbus::Result<AuthorizationResult<'static>>;
 
     /// Enumerates all registered PolicyKit actions.
     ///
     /// # Arguments:
     ///
     /// * `locale` - The locale to get descriptions in or the blank string to use the system locale.
-    fn enumerate_actions(&self, locale: &str) -> zbus::Result<Vec<ActionDescription>>;
+    fn enumerate_actions(&self, locale: &str) -> zbus::Result<Vec<ActionDescription<'static>>>;
 
     /// Retrieves all temporary authorizations that applies to subject.
     fn enumerate_temporary_authorizations(
         &self,
         subject: &Subject<'_>,
-    ) -> zbus::Result<Vec<TemporaryAuthorization>>;
+    ) -> zbus::Result<Vec<TemporaryAuthorization<'static>>>;
 
     /// Register an authentication agent.
     ///
@@ -486,10 +512,49 @@ where
     }
 }
 
-// A `Subject` borrows from what it is decoded from, but what a proxy returns has to own all of
-// it, so the subject of a `TemporaryAuthorization` is made owned as it is decoded, which
-// duplicates any pidfd it holds.
-fn owned_subject<'de, D>(deserializer: D) -> Result<Subject<'static>, D::Error>
+// What a proxy returns has to own all it holds, so the text of a reply is made owned as it is
+// decoded. Text that the deserializer lends is copied once, into the `Arc` that owned text is kept
+// in, and other text is in one already.
+fn owned<'de, 'a, D>(deserializer: D) -> Result<Str<'a>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Str::deserialize(deserializer).map(Str::into_owned)
+}
+
+// A dictionary of text, decoded straight into owned text as `owned` decodes it.
+fn owned_map<'de, 'a, D>(deserializer: D) -> Result<HashMap<Str<'a>, Str<'a>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct Entries;
+
+    impl<'de> Visitor<'de> for Entries {
+        type Value = HashMap<Str<'static>, Str<'static>>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a dictionary of strings")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: MapAccess<'de>,
+        {
+            let mut entries = HashMap::new();
+            while let Some((key, value)) = map.next_entry::<Str<'de>, Str<'de>>()? {
+                entries.insert(key.into_owned(), value.into_owned());
+            }
+
+            Ok(entries)
+        }
+    }
+
+    deserializer.deserialize_map(Entries)
+}
+
+// A `Subject` borrows from what it is decoded from, so the subject of a `TemporaryAuthorization` is
+// made owned as it is decoded, which duplicates any pidfd it holds.
+fn owned_subject<'de, 'a, D>(deserializer: D) -> Result<Subject<'a>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -522,6 +587,64 @@ mod tests {
         assert_eq!(CheckAuthorizationFlags::SIGNATURE.to_string(), "u");
         assert_eq!(ImplicitAuthorization::SIGNATURE.to_string(), "u");
         assert_eq!(AuthorityFeatures::SIGNATURE.to_string(), "u");
+    }
+
+    // What `AuthorityProxy` returns has to own all it holds, so a reply is decoded owned, even out
+    // of a message that would lend its text.
+    #[test]
+    fn replies_own_the_text_they_are_decoded_from() {
+        let context = Context::new(LE, 0);
+        let outside = |bytes: &[u8], text: &str| !bytes.as_ptr_range().contains(&text.as_ptr());
+
+        let result = AuthorizationResult {
+            is_authorized: false,
+            is_challenge: true,
+            details: HashMap::from([("polkit.dismissed".into(), "true".into())]),
+        };
+        let encoded = to_bytes(context, &result).unwrap();
+        let decoded: AuthorizationResult<'_> = encoded.deserialize().unwrap().0;
+        assert_eq!(decoded, result);
+        assert!(decoded
+            .details
+            .iter()
+            .all(|(key, value)| outside(&encoded, key) && outside(&encoded, value)));
+
+        let action = ActionDescription {
+            action_id: "org.zbus.BeAwesome".into(),
+            description: "Be awesome".into(),
+            message: "Authentication is required to be awesome".into(),
+            vendor_name: "zbus".into(),
+            vendor_url: "https://github.com/z-galaxy/zbus".into(),
+            icon_name: "security-high".into(),
+            implicit_any: ImplicitAuthorization::NotAuthorized,
+            implicit_inactive: ImplicitAuthorization::AuthenticationRequired,
+            implicit_active: ImplicitAuthorization::Authorized,
+            annotations: HashMap::from([("org.zbus.awesome".into(), "true".into())]),
+        };
+        let encoded = to_bytes(context, &action).unwrap();
+        let decoded: ActionDescription<'_> = encoded.deserialize().unwrap().0;
+        assert_eq!(decoded, action);
+        assert!(outside(&encoded, &decoded.action_id) && outside(&encoded, &decoded.icon_name));
+        assert!(decoded
+            .annotations
+            .iter()
+            .all(|(key, value)| outside(&encoded, key) && outside(&encoded, value)));
+
+        let authorization = TemporaryAuthorization {
+            id: "tmp-1".into(),
+            action_id: "org.zbus.BeAwesome".into(),
+            subject: Subject::new_for_unix_session("c2"),
+            time_obtained: 1,
+            time_expires: 2,
+        };
+        let encoded = to_bytes(context, &authorization).unwrap();
+        let decoded: TemporaryAuthorization<'_> = encoded.deserialize().unwrap().0;
+        assert_eq!(decoded.id, "tmp-1");
+        assert!(outside(&encoded, &decoded.id) && outside(&encoded, &decoded.action_id));
+        let session_id = decoded.subject.session_id().unwrap();
+        assert_eq!(session_id, "c2");
+        assert!(outside(&encoded, session_id));
+        assert_eq!((decoded.time_obtained, decoded.time_expires), (1, 2));
     }
 
     #[test]
