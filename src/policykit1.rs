@@ -59,7 +59,7 @@ assert_impl_all!(CheckAuthorizationFlags: Send, Sync, Unpin);
 
 /// An enumeration for granting implicit authorizations.
 #[repr(u32)]
-#[derive(Deserialize_repr, Serialize_repr, Type, Debug, PartialEq, Eq)]
+#[derive(Deserialize_repr, Serialize_repr, Type, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ImplicitAuthorization {
     /// The Subject is not authorized.
     NotAuthorized = 0,
@@ -151,7 +151,7 @@ pub struct TemporaryAuthorization {
 assert_impl_all!(TemporaryAuthorization: Send, Sync, Unpin);
 
 /// This struct describes actions registered with the PolicyKit daemon.
-#[derive(Debug, Type, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Type, Serialize, Deserialize)]
 pub struct ActionDescription {
     /// Action Identifier.
     pub action_id: Box<str>,
@@ -190,7 +190,7 @@ pub struct ActionDescription {
 assert_impl_all!(ActionDescription: Send, Sync, Unpin);
 
 /// Describes the result of calling `CheckAuthorization()`
-#[derive(Debug, Type, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Type, Serialize, Deserialize)]
 pub struct AuthorizationResult {
     /// TRUE if the given `Subject` is authorized for the given action.
     pub is_authorized: bool,
