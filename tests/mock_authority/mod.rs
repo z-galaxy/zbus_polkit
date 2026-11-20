@@ -126,13 +126,13 @@ impl MockAuthority {
     }
 
     #[zbus(property)]
-    fn backend_name(&self) -> String {
-        BACKEND_NAME.into()
+    fn backend_name(&self) -> &str {
+        BACKEND_NAME
     }
 
     #[zbus(property)]
-    fn backend_version(&self) -> String {
-        BACKEND_VERSION.into()
+    fn backend_version(&self) -> &str {
+        BACKEND_VERSION
     }
 }
 

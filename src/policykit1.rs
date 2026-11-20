@@ -239,34 +239,43 @@ assert_impl_all!(AuthorizationResult<'static>: DeserializeOwned);
 
 /// The errors polkit replies with, in the `org.freedesktop.PolicyKit1.Error` domain.
 ///
-/// A call on [`AuthorityProxy`] that the daemon refuses fails with one of these, and an
-/// authentication agent replies with one when an authentication does not end in success. A
-/// [`zbus::Error`] carrying a method error of this domain converts into the variant of its name;
-/// any other error lands in [`Error::ZBus`].
+/// An authentication agent replies with one of these when an authentication does not end in
+/// success, so a call on [`AuthenticationAgentProxy`] fails with one. A call on [`AuthorityProxy`]
+/// fails with a [`zbus::Error`], which converts into one of these: a method error of this domain
+/// into the variant of its name, and any other error into [`Error::ZBus`].
+///
+/// So a mechanism whose methods return this error passes the errors of the authority on to its own
+/// caller with `?`, under polkit's names, such as `org.freedesktop.PolicyKit1.Error.Failed`. One
+/// whose methods return a [`fdo::Result`] passes them on under polkit's names too, though its own
+/// code then gets them as [`fdo::Error::ZBus`] rather than as these variants.
+///
+/// polkit may add errors to its domain, which would be added here too, so a match on this enum has
+/// to leave room for more of them.
 #[derive(Debug, PartialEq, zbus::DBusError)]
 #[zbus(prefix = "org.freedesktop.PolicyKit1.Error")]
+#[non_exhaustive]
 pub enum Error {
-    /// A D-Bus error outside the polkit domain.
+    /// A D-Bus error outside the polkit domain, or an error of zbus's own, such as an I/O error.
     #[zbus(error)]
     ZBus(zbus::Error),
 
     /// The operation failed.
-    Failed(String),
+    Failed(Box<str>),
 
     /// The operation was cancelled.
     ///
     /// From an authentication agent, this is how the daemon learns that the user dismissed the
     /// request, which it reports as `polkit.dismissed` in the result the mechanism gets.
-    Cancelled(String),
+    Cancelled(Box<str>),
 
     /// The operation is not supported.
-    NotSupported(String),
+    NotSupported(Box<str>),
 
     /// The caller is not authorized to perform the operation.
-    NotAuthorized(String),
+    NotAuthorized(Box<str>),
 
     /// The `cancellation_id` passed to `CheckAuthorization()` is already in use by the caller.
-    CancellationIdNotUnique(String),
+    CancellationIdNotUnique(Box<str>),
 }
 
 /// This D-Bus interface is implemented by the /org/freedesktop/PolicyKit1/Authority object on the
@@ -432,11 +441,11 @@ pub trait Authority {
 
     /// The name of the currently used Authority backend.
     #[zbus(property)]
-    fn backend_name(&self) -> fdo::Result<String>;
+    fn backend_name(&self) -> fdo::Result<Box<str>>;
 
     /// The version of the currently used Authority backend.
     #[zbus(property)]
-    fn backend_version(&self) -> fdo::Result<String>;
+    fn backend_version(&self) -> fdo::Result<Box<str>>;
 }
 
 assert_impl_all!(AuthorityProxy<'_>: Send, Sync, Unpin);
@@ -460,7 +469,8 @@ pub trait AuthenticationAgent {
     ///
     /// * `icon_name` - The name of an icon to show with it, or empty for none.
     ///
-    /// * `details` - The details given to `CheckAuthorization()`, plus what the daemon adds.
+    /// * `details` - The details given to `CheckAuthorization()`, plus what the daemon adds, as an
+    ///   agent's `Request` holds them.
     ///
     /// * `cookie` - What names this authentication to the daemon.
     ///
@@ -470,7 +480,7 @@ pub trait AuthenticationAgent {
         action_id: &str,
         message: &str,
         icon_name: &str,
-        details: &HashMap<&str, &str>,
+        details: &HashMap<Str<'_>, Str<'_>>,
         cookie: &str,
         identities: &[Identity<'_>],
     ) -> Result<(), Error>;

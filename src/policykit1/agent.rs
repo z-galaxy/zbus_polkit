@@ -26,10 +26,9 @@
 //! impl Handler for Prompt {
 //!     async fn begin_authentication(&self, request: Request<'_>) -> Result<(), Error> {
 //!         // Show `request` to the user and run the helper. This agent only ever declines.
-//!         Err(Error::Cancelled(format!(
-//!             "not authenticating for {}",
-//!             request.action_id
-//!         )))
+//!         Err(Error::Cancelled(
+//!             format!("not authenticating for {}", request.action_id).into(),
+//!         ))
 //!     }
 //! }
 //!
@@ -246,9 +245,9 @@ impl Cancellations {
             return Err(cancelled());
         }
         if state.running.contains_key(cookie) {
-            return Err(Error::Failed(format!(
-                "an authentication for cookie {cookie} is already running"
-            )));
+            return Err(Error::Failed(
+                format!("an authentication for cookie {cookie} is already running").into(),
+            ));
         }
         state.running.insert(cookie.into(), Running::default());
 

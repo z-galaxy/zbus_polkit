@@ -22,7 +22,7 @@ tokio = ["zbus/tokio"]
 agent = ["zbus/service"]
 
 [dependencies]
-zbus = { version = "6.4.0", default-features = false, features = [
+zbus = { version = "6.5.0", default-features = false, features = [
     "proxy",
 ] }
 serde = { version = "1.0.200", features = ["derive"] }
@@ -50,7 +50,7 @@ tokio = { version = "1", features = [
 ] }
 # The tests stand up an object server over a p2p connection, which the library itself does not
 # need.
-zbus = { version = "6.4.0", default-features = false, features = [
+zbus = { version = "6.5.0", default-features = false, features = [
     "p2p",
     "service",
 ] }
