@@ -4,14 +4,17 @@ mod system_bus_name;
 mod unix_process;
 mod unix_session;
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    io,
+    os::fd::{AsFd, BorrowedFd},
+};
 
 use serde::{Deserialize, Serialize};
 use static_assertions::assert_impl_all;
-use zbus::{Fd, OwnedVariant, Str, Type};
+use zbus::{names::UniqueName, Fd, OwnedVariant, Str, Type};
 
 use self::{system_bus_name::SystemBusName, unix_process::UnixProcess, unix_session::UnixSession};
-use super::text::Text;
 use crate::Error;
 
 /// This struct describes subjects such as UNIX processes. It is typically used to check if a given
@@ -44,6 +47,59 @@ impl<'a> Subject<'a> {
         }
     }
 
+    /// The pidfd of the process, if this is a `unix-process` subject with one.
+    pub fn pidfd(&self) -> Option<BorrowedFd<'_>> {
+        match &self.0 {
+            Kind::UnixProcess(process) => process.pidfd.as_ref().map(AsFd::as_fd),
+            _ => None,
+        }
+    }
+
+    /// The process ID, if this is a `unix-process` subject with one.
+    pub fn pid(&self) -> Option<u32> {
+        match &self.0 {
+            Kind::UnixProcess(process) => process.pid,
+            _ => None,
+        }
+    }
+
+    /// The start time of the process, in clock ticks since boot, if this is a `unix-process`
+    /// subject with one.
+    pub fn start_time(&self) -> Option<u64> {
+        match &self.0 {
+            Kind::UnixProcess(process) => process.start_time,
+            _ => None,
+        }
+    }
+
+    /// The (real, not effective) uid of the owner of the process, if this is a `unix-process`
+    /// subject with one.
+    ///
+    /// It's a signed 32-bit integer, as polkit sends and reads the uid of a process, and as the
+    /// constructors take it.
+    pub fn uid(&self) -> Option<i32> {
+        match &self.0 {
+            Kind::UnixProcess(process) => process.uid,
+            _ => None,
+        }
+    }
+
+    /// The ID of the session, if this is a `unix-session` subject.
+    pub fn session_id(&self) -> Option<&str> {
+        match &self.0 {
+            Kind::UnixSession(session) => Some(&session.session_id),
+            _ => None,
+        }
+    }
+
+    /// The unique name of the connection, if this is a `system-bus-name` subject.
+    pub fn bus_name(&self) -> Option<&UniqueName<'a>> {
+        match &self.0 {
+            Kind::SystemBusName(bus_name) => Some(&bus_name.name),
+            _ => None,
+        }
+    }
+
     /// Create a `Subject` for a process identified by `pidfd`.
     ///
     /// A pidfd names a specific process incarnation, so this is not subject to the PID-reuse
@@ -57,13 +113,15 @@ impl<'a> Subject<'a> {
     /// * `pidfd` - A pidfd for the process (from `pidfd_open(2)` or `SO_PEERPIDFD`). The subject
     ///   borrows it, or takes it over if it is an [`OwnedFd`](std::os::fd::OwnedFd).
     ///
-    /// * `uid` - The (real, not effective) uid of the owner of the process
-    pub fn new_for_owner(pidfd: impl Into<Fd<'a>>, uid: u32) -> Self {
+    /// * `uid` - The (real, not effective) uid of the owner of the process, as the signed 32-bit
+    ///   integer that polkit reads the uid of a process as, which a `u32` uid converts to with
+    ///   [`u32::cast_signed`].
+    pub fn new_for_owner(pidfd: impl Into<Fd<'a>>, uid: i32) -> Self {
         Self(Kind::UnixProcess(UnixProcess {
             pidfd: Some(pidfd.into()),
             pid: None,
             start_time: None,
-            uid: Some(uid as i32),
+            uid: Some(uid),
         }))
     }
 
@@ -78,23 +136,23 @@ impl<'a> Subject<'a> {
     ///
     /// * `start_time` - The start time for `pid` or `None` to look it up in e.g. `/proc`
     ///
-    /// * `uid` - The (real, not effective) uid of the owner of `pid` or `None` to look it up in
-    ///   e.g. `/proc`
-    pub fn new_for_pid(pid: u32, start_time: Option<u64>, uid: Option<u32>) -> Result<Self, Error> {
+    /// * `uid` - The (real, not effective) uid of the owner of `pid`, as
+    ///   [`new_for_owner`](Self::new_for_owner) takes it, or `None` to look it up in e.g. `/proc`
+    pub fn new_for_pid(pid: u32, start_time: Option<u64>, uid: Option<i32>) -> Result<Self, Error> {
         let start_time = match start_time {
             Some(s) => s,
             None => pid_start_time(pid)?,
         };
         let uid = match uid {
-            Some(u) => u,
-            None => pid_uid_racy(pid)?,
+            Some(uid) => uid,
+            None => pid_uid_racy(pid)?.cast_signed(),
         };
 
         Ok(Self(Kind::UnixProcess(UnixProcess {
             pidfd: None,
             pid: Some(pid),
             start_time: Some(start_time),
-            uid: Some(uid as i32),
+            uid: Some(uid),
         })))
     }
 
@@ -105,7 +163,7 @@ impl<'a> Subject<'a> {
     /// * session_id - The session ID.
     pub fn new_for_unix_session(session_id: impl Into<Str<'a>>) -> Self {
         Self(Kind::UnixSession(UnixSession {
-            session_id: session_id.into().into(),
+            session_id: session_id.into(),
         }))
     }
 
@@ -124,6 +182,53 @@ impl<'a> Subject<'a> {
         Ok(Self(Kind::SystemBusName(SystemBusName {
             name: sender.clone(),
         })))
+    }
+
+    /// A copy of this subject, borrowing what this one borrows and sharing the text it owns.
+    ///
+    /// A pidfd that this subject owns is duplicated for the copy, as is a descriptor among the
+    /// details of a kind this crate doesn't know, which can fail with [`Error::Io`].
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        Ok(Self(match &self.0 {
+            Kind::UnixProcess(UnixProcess {
+                pidfd,
+                pid,
+                start_time,
+                uid,
+            }) => Kind::UnixProcess(UnixProcess {
+                pidfd: pidfd
+                    .as_ref()
+                    .map(|pidfd| match pidfd {
+                        Fd::Borrowed(pidfd) => Ok(Fd::Borrowed(*pidfd)),
+                        Fd::Owned(pidfd) => pidfd.try_clone().map(Fd::Owned),
+                    })
+                    .transpose()?,
+                pid: *pid,
+                start_time: *start_time,
+                uid: *uid,
+            }),
+            Kind::UnixSession(UnixSession { session_id }) => Kind::UnixSession(UnixSession {
+                session_id: session_id.clone(),
+            }),
+            Kind::SystemBusName(SystemBusName { name }) => {
+                Kind::SystemBusName(SystemBusName { name: name.clone() })
+            }
+            Kind::Other(Raw {
+                subject_kind,
+                subject_details,
+            }) => Kind::Other(Raw {
+                subject_kind: subject_kind.clone(),
+                subject_details: subject_details
+                    .iter()
+                    .map(|(key, value)| {
+                        // Cloning a value fails only where duplicating a descriptor in it does.
+                        let value = value.try_clone().map_err(io::Error::other)?;
+
+                        Ok((key.clone(), value))
+                    })
+                    .collect::<Result<_, Error>>()?,
+            }),
+        }))
     }
 
     /// This subject with all of its text and its pidfd owned, so that it borrows from nothing.
@@ -196,9 +301,9 @@ enum Kind<'a> {
 #[derive(Debug, Type, Serialize, Deserialize)]
 struct Raw<'a> {
     #[serde(borrow)]
-    subject_kind: Text<'a>,
+    subject_kind: Str<'a>,
     #[serde(borrow)]
-    subject_details: HashMap<Text<'a>, OwnedVariant>,
+    subject_details: HashMap<Str<'a>, OwnedVariant>,
 }
 
 const UNIX_PROCESS: &str = "unix-process";
@@ -449,6 +554,14 @@ mod tests {
         };
         assert!(within(&encoded, &details.session_id));
 
+        let details = HashMap::from([("name", Variant::from(":1.42"))]);
+        let encoded = to_bytes(context, &("system-bus-name", details)).unwrap();
+        let bus_name: Subject<'_> = encoded.deserialize().unwrap().0;
+        let Kind::SystemBusName(details) = &bus_name.0 else {
+            panic!("expected a system-bus-name subject, got {bus_name:?}");
+        };
+        assert!(within(&encoded, details.name.as_str()));
+
         let details = HashMap::from([("name", Variant::from("engineering"))]);
         let encoded = to_bytes(context, &("unix-netgroup", details)).unwrap();
         let netgroup: Subject<'_> = encoded.deserialize().unwrap().0;
@@ -526,7 +639,7 @@ mod tests {
             panic!("expected an unknown kind to be kept, got {subject:?}");
         };
         assert_eq!(
-            *raw.subject_details[&Text::from(Str::from("name"))],
+            *raw.subject_details[&Str::from("name")],
             Variant::from("engineering")
         );
 
@@ -548,7 +661,7 @@ mod tests {
             panic!("expected the subject to be kept as it arrived, got {subject:?}");
         };
         assert_eq!(
-            *raw.subject_details[&Text::from(Str::from("pid"))],
+            *raw.subject_details[&Str::from("pid")],
             Variant::from("not a pid")
         );
     }
@@ -597,11 +710,11 @@ mod tests {
             time_expires: 2,
         };
         for back in [
-            serde_json::from_str::<TemporaryAuthorization>(
+            serde_json::from_str::<TemporaryAuthorization<'_>>(
                 &serde_json::to_string(&authorization).unwrap(),
             )
             .unwrap(),
-            serde_json::from_value::<TemporaryAuthorization>(
+            serde_json::from_value::<TemporaryAuthorization<'_>>(
                 serde_json::to_value(&authorization).unwrap(),
             )
             .unwrap(),
@@ -624,10 +737,7 @@ mod tests {
         let Kind::Other(raw) = &back.0 else {
             panic!("decoded as a known kind");
         };
-        assert_eq!(
-            *raw.subject_details[&Text::from(Str::from("k"))],
-            Variant::from("v")
-        );
+        assert_eq!(*raw.subject_details[&Str::from("k")], Variant::from("v"));
 
         // What `serde_json::to_value` lays the keys out as: the details first.
         let reversed = r#"{"subject_details":{"k":{"signature":"s","value":"v"}},"subject_kind":"brand-new-kind"}"#;
@@ -637,10 +747,7 @@ mod tests {
         let Kind::Other(raw) = &back.0 else {
             panic!("decoded as a known kind");
         };
-        assert_eq!(
-            *raw.subject_details[&Text::from(Str::from("k"))],
-            Variant::from("v")
-        );
+        assert_eq!(*raw.subject_details[&Str::from("k")], Variant::from("v"));
 
         let subject = received_as("brand-new-kind", []);
         let back = Subject::deserialize(serde_json::to_value(&subject).unwrap()).unwrap();
@@ -764,5 +871,127 @@ mod tests {
 
         let err = Subject::new_for_message_header(&msg.header()).unwrap_err();
         assert!(matches!(err, Error::MissingSender), "{err:?}");
+    }
+
+    #[test]
+    fn subject_accessors_read_the_details_of_its_kind() {
+        let process = received_as(
+            "unix-process",
+            [
+                ("pid", Variant::U32(4242)),
+                ("start-time", Variant::U64(7)),
+                ("uid", Variant::I32(1234)),
+            ],
+        );
+        assert_eq!(process.pid(), Some(4242));
+        assert_eq!(process.start_time(), Some(7));
+        assert_eq!(process.uid(), Some(1234));
+        assert!(process.pidfd().is_none());
+        assert_eq!(process.session_id(), None);
+        assert_eq!(process.bus_name(), None);
+
+        let session = received_as("unix-session", [("session-id", Variant::from("c2"))]);
+        assert_eq!(session.session_id(), Some("c2"));
+        assert_eq!(session.pid(), None);
+        assert_eq!(session.uid(), None);
+        assert_eq!(session.bus_name(), None);
+
+        let bus_name = received_as("system-bus-name", [("name", Variant::from(":1.42"))]);
+        assert_eq!(bus_name.bus_name().map(UniqueName::as_str), Some(":1.42"));
+        assert_eq!(bus_name.pid(), None);
+        assert_eq!(bus_name.session_id(), None);
+
+        let netgroup = received_as("unix-netgroup", [("name", Variant::from("engineering"))]);
+        assert_eq!(netgroup.pid(), None);
+        assert_eq!(netgroup.session_id(), None);
+        assert_eq!(netgroup.bus_name(), None);
+
+        // Sent as a known kind whose details don't decode as that kind's, a subject is kept as it
+        // arrived, and has none of them either.
+        let unnamed = received_as(
+            "system-bus-name",
+            [("name", Variant::from("not a unique name"))],
+        );
+        assert_eq!(unnamed.kind(), "system-bus-name");
+        assert_eq!(unnamed.bus_name(), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn subject_accessors_read_the_pidfd_it_holds() {
+        use std::os::fd::AsRawFd;
+
+        let pidfd = std::fs::File::open("/dev/null").unwrap();
+        let process = Subject::new_for_owner(&pidfd, 1234);
+        assert_eq!(
+            process.pidfd().map(|pidfd| pidfd.as_raw_fd()),
+            Some(pidfd.as_raw_fd())
+        );
+        assert_eq!(process.uid(), Some(1234));
+        assert_eq!(process.pid(), None);
+        assert_eq!(process.start_time(), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn subject_clone_borrows_a_borrowed_pidfd_and_duplicates_an_owned_one() {
+        use std::os::fd::{AsRawFd, OwnedFd};
+
+        let pidfd = std::fs::File::open("/dev/null").unwrap();
+        let borrowing = Subject::new_for_owner(&pidfd, 1234);
+        let clone = borrowing.try_clone().unwrap();
+        let Kind::UnixProcess(UnixProcess {
+            pidfd: Some(Fd::Borrowed(borrowed)),
+            ..
+        }) = &clone.0
+        else {
+            panic!("expected a borrowed pidfd, got {clone:?}");
+        };
+        assert_eq!(borrowed.as_raw_fd(), pidfd.as_raw_fd());
+        assert_eq!(clone.uid(), Some(1234));
+
+        // Each owner closes its own descriptor, so the clone gets one of its own.
+        let owning = Subject::new_for_owner(OwnedFd::from(pidfd), 1234);
+        let clone = owning.try_clone().unwrap();
+        let Kind::UnixProcess(UnixProcess {
+            pidfd: Some(Fd::Owned(duplicate)),
+            ..
+        }) = &clone.0
+        else {
+            panic!("expected an owned pidfd, got {clone:?}");
+        };
+        assert_ne!(duplicate.as_raw_fd(), owning.pidfd().unwrap().as_raw_fd());
+        assert_eq!(clone.uid(), Some(1234));
+    }
+
+    #[test]
+    fn subject_clone_shares_the_text() {
+        let session_id = String::from("c2");
+        let borrowing = Subject::new_for_unix_session(session_id.as_str());
+        let clone = borrowing.try_clone().unwrap();
+        assert!(std::ptr::eq(
+            clone.session_id().unwrap(),
+            session_id.as_str()
+        ));
+
+        let owning = Subject::new_for_unix_session(String::from("c2"));
+        let clone = owning.try_clone().unwrap();
+        assert!(std::ptr::eq(
+            clone.session_id().unwrap(),
+            owning.session_id().unwrap()
+        ));
+
+        let bus_name = received_as("system-bus-name", [("name", Variant::from(":1.42"))]);
+        let clone = bus_name.try_clone().unwrap();
+        assert!(std::ptr::eq(
+            clone.bus_name().unwrap().as_str(),
+            bus_name.bus_name().unwrap().as_str()
+        ));
+
+        // A kind this crate does not know is copied as it arrived.
+        let unknown = received_as("unix-netgroup", [("name", Variant::from("engineering"))]);
+        let (kind, sent) = sent_as(&unknown.try_clone().unwrap());
+        assert_eq!(kind, "unix-netgroup");
+        assert_eq!(*sent["name"], Variant::from("engineering"));
     }
 }

@@ -22,13 +22,16 @@ tokio = ["zbus/tokio"]
 agent = ["zbus/service"]
 
 [dependencies]
-zbus = { version = "6.0.0", default-features = false, features = [
+zbus = { version = "6.4.0", default-features = false, features = [
     "proxy",
 ] }
 serde = { version = "1.0.200", features = ["derive"] }
 serde_repr = "0.1.19"
 bitflags = "2.13.2"
 static_assertions = "1.1.0"
+# zbus's `Str` is zcheapstr's `CheapStr`, which implements `Borrow<str>` from 1.4 on, so that a
+# map with `Str` keys is looked up by `&str`. zbus itself asks only for 1.3.
+zcheapstr = "1.4.0"
 
 [dev-dependencies]
 byteorder = "1.5.0"
@@ -47,7 +50,7 @@ tokio = { version = "1", features = [
 ] }
 # The tests stand up an object server over a p2p connection, which the library itself does not
 # need.
-zbus = { version = "6.0.0", default-features = false, features = [
+zbus = { version = "6.4.0", default-features = false, features = [
     "p2p",
     "service",
 ] }
