@@ -245,7 +245,9 @@ assert_impl_all!(AuthorizationResult<'static>: DeserializeOwned);
 /// into the variant of its name, and any other error into [`Error::ZBus`].
 ///
 /// So a mechanism whose methods return this error passes the errors of the authority on to its own
-/// caller with `?`, under polkit's names, such as `org.freedesktop.PolicyKit1.Error.Failed`.
+/// caller with `?`, under polkit's names, such as `org.freedesktop.PolicyKit1.Error.Failed`. One
+/// whose methods return a [`fdo::Result`] passes them on under polkit's names too, though its own
+/// code then gets them as [`fdo::Error::ZBus`] rather than as these variants.
 ///
 /// polkit may add errors to its domain, which would be added here too, so a match on this enum has
 /// to leave room for more of them.

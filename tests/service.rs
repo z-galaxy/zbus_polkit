@@ -9,7 +9,7 @@ use std::{collections::HashMap, fs::File};
 
 use futures_util::future;
 use zbus::{
-    connection,
+    connection, fdo,
     message::Message,
     object_server::{Interface, InterfaceRef},
     Connection, Guid, OwnedVariant, Variant,
@@ -77,8 +77,8 @@ async fn a_check_arrives_as_it_was_sent() {
 }
 
 // A mechanism asks the authority in a method of its own before it acts. When that method returns
-// this crate's `Error`, `?` takes the authority's error into it, and the mechanism's own caller
-// gets the error under polkit's name.
+// this crate's `Error`, or a `zbus::fdo::Result`, `?` takes the authority's error into it, and the
+// mechanism's own caller gets the error under polkit's name.
 #[tokio::test]
 async fn an_error_of_the_authority_reaches_a_mechanisms_caller_in_the_polkit_domain() {
     let harness = Harness::new().await;
@@ -87,16 +87,21 @@ async fn an_error_of_the_authority_reaches_a_mechanisms_caller_in_the_polkit_dom
     let mechanism = MechanismProxy::new(&caller).await.unwrap();
 
     assert!(mechanism.may(ACTION_ID).await.unwrap());
-    let refused = mechanism.may("org.zbus.Unknown").await.unwrap_err();
-    let zbus::Error::MethodError(name, description, _) = &refused else {
-        panic!("expected a method error, got {refused:?}");
-    };
-    assert_eq!(name.as_str(), "org.freedesktop.PolicyKit1.Error.Failed");
-    assert_eq!(description.as_deref(), Some("no action org.zbus.Unknown"));
-    assert_eq!(
-        Error::from(refused),
-        Error::Failed("no action org.zbus.Unknown".into())
-    );
+    assert!(mechanism.may_fdo(ACTION_ID).await.unwrap());
+    for refused in [
+        mechanism.may("org.zbus.Unknown").await.unwrap_err(),
+        mechanism.may_fdo("org.zbus.Unknown").await.unwrap_err(),
+    ] {
+        let zbus::Error::MethodError(name, description, _) = &refused else {
+            panic!("expected a method error, got {refused:?}");
+        };
+        assert_eq!(name.as_str(), "org.freedesktop.PolicyKit1.Error.Failed");
+        assert_eq!(description.as_deref(), Some("no action org.zbus.Unknown"));
+        assert_eq!(
+            Error::from(refused),
+            Error::Failed("no action org.zbus.Unknown".into())
+        );
+    }
 }
 
 #[tokio::test]
@@ -208,8 +213,18 @@ struct Mechanism {
 impl Mechanism {
     /// Whether the caller may do `action_id`, as the authority has it.
     async fn may(&self, action_id: &str) -> Result<bool, Error> {
-        let result = self
-            .authority
+        Ok(self.check(action_id).await?.is_authorized)
+    }
+
+    /// The same as `may`, from a method that returns a `zbus::fdo::Result`.
+    async fn may_fdo(&self, action_id: &str) -> fdo::Result<bool> {
+        Ok(self.check(action_id).await?.is_authorized)
+    }
+}
+
+impl Mechanism {
+    async fn check(&self, action_id: &str) -> zbus::Result<AuthorizationResult<'static>> {
+        self.authority
             .check_authorization(
                 &Subject::new_for_unix_session("c2"),
                 action_id,
@@ -217,9 +232,7 @@ impl Mechanism {
                 CheckAuthorizationFlags::empty(),
                 "",
             )
-            .await?;
-
-        Ok(result.is_authorized)
+            .await
     }
 }
 
@@ -230,6 +243,8 @@ impl Mechanism {
 )]
 trait Mechanism {
     fn may(&self, action_id: &str) -> zbus::Result<bool>;
+
+    fn may_fdo(&self, action_id: &str) -> zbus::Result<bool>;
 }
 
 /// A polkit implementation, as far as these tests need one: it keeps what the calls brought, and
