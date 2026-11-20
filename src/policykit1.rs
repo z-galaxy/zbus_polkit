@@ -12,7 +12,6 @@ mod identity;
 pub use identity::Identity;
 mod subject;
 pub use subject::Subject;
-mod text;
 
 /// Flags used in the CheckAuthorization() method.
 ///

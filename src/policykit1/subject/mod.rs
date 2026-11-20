@@ -11,7 +11,6 @@ use static_assertions::assert_impl_all;
 use zbus::{Fd, OwnedVariant, Str, Type};
 
 use self::{system_bus_name::SystemBusName, unix_process::UnixProcess, unix_session::UnixSession};
-use super::text::Text;
 use crate::Error;
 
 /// This struct describes subjects such as UNIX processes. It is typically used to check if a given
@@ -105,7 +104,7 @@ impl<'a> Subject<'a> {
     /// * session_id - The session ID.
     pub fn new_for_unix_session(session_id: impl Into<Str<'a>>) -> Self {
         Self(Kind::UnixSession(UnixSession {
-            session_id: session_id.into().into(),
+            session_id: session_id.into(),
         }))
     }
 
@@ -196,9 +195,9 @@ enum Kind<'a> {
 #[derive(Debug, Type, Serialize, Deserialize)]
 struct Raw<'a> {
     #[serde(borrow)]
-    subject_kind: Text<'a>,
+    subject_kind: Str<'a>,
     #[serde(borrow)]
-    subject_details: HashMap<Text<'a>, OwnedVariant>,
+    subject_details: HashMap<Str<'a>, OwnedVariant>,
 }
 
 const UNIX_PROCESS: &str = "unix-process";
@@ -534,7 +533,7 @@ mod tests {
             panic!("expected an unknown kind to be kept, got {subject:?}");
         };
         assert_eq!(
-            *raw.subject_details[&Text::from(Str::from("name"))],
+            *raw.subject_details[&Str::from("name")],
             Variant::from("engineering")
         );
 
@@ -556,7 +555,7 @@ mod tests {
             panic!("expected the subject to be kept as it arrived, got {subject:?}");
         };
         assert_eq!(
-            *raw.subject_details[&Text::from(Str::from("pid"))],
+            *raw.subject_details[&Str::from("pid")],
             Variant::from("not a pid")
         );
     }
@@ -632,10 +631,7 @@ mod tests {
         let Kind::Other(raw) = &back.0 else {
             panic!("decoded as a known kind");
         };
-        assert_eq!(
-            *raw.subject_details[&Text::from(Str::from("k"))],
-            Variant::from("v")
-        );
+        assert_eq!(*raw.subject_details[&Str::from("k")], Variant::from("v"));
 
         // What `serde_json::to_value` lays the keys out as: the details first.
         let reversed = r#"{"subject_details":{"k":{"signature":"s","value":"v"}},"subject_kind":"brand-new-kind"}"#;
@@ -645,10 +641,7 @@ mod tests {
         let Kind::Other(raw) = &back.0 else {
             panic!("decoded as a known kind");
         };
-        assert_eq!(
-            *raw.subject_details[&Text::from(Str::from("k"))],
-            Variant::from("v")
-        );
+        assert_eq!(*raw.subject_details[&Str::from("k")], Variant::from("v"));
 
         let subject = received_as("brand-new-kind", []);
         let back = Subject::deserialize(serde_json::to_value(&subject).unwrap()).unwrap();

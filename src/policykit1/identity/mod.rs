@@ -11,7 +11,6 @@ use static_assertions::assert_impl_all;
 use zbus::{OwnedVariant, Str, Type};
 
 use self::{unix_group::UnixGroup, unix_netgroup::UnixNetgroup, unix_user::UnixUser};
-use super::text::Text;
 
 /// An identity polkit can authenticate as: a UNIX user, group or netgroup.
 ///
@@ -80,9 +79,7 @@ impl<'a> Identity<'a> {
 
     /// Create an `Identity` for the UNIX netgroup called `name`.
     pub fn new_for_unix_netgroup(name: impl Into<Str<'a>>) -> Self {
-        Self(Kind::UnixNetgroup(UnixNetgroup {
-            name: name.into().into(),
-        }))
+        Self(Kind::UnixNetgroup(UnixNetgroup { name: name.into() }))
     }
 
     /// This identity with all of its text owned, so that it borrows from nothing.
@@ -136,9 +133,9 @@ enum Kind<'a> {
 #[derive(Debug, Clone, PartialEq, Type, Serialize, Deserialize)]
 struct Raw<'a> {
     #[serde(borrow)]
-    identity_kind: Text<'a>,
+    identity_kind: Str<'a>,
     #[serde(borrow)]
-    identity_details: HashMap<Text<'a>, OwnedVariant>,
+    identity_details: HashMap<Str<'a>, OwnedVariant>,
 }
 
 const UNIX_USER: &str = "unix-user";
@@ -221,7 +218,7 @@ mod tests {
             panic!("expected an unknown kind to be kept, got {role:?}");
         };
         assert_eq!(
-            *raw.identity_details[&Text::from(Str::from("name"))],
+            *raw.identity_details[&Str::from("name")],
             Variant::from("operator")
         );
     }
@@ -263,7 +260,7 @@ mod tests {
             panic!("expected an unknown kind to be kept, got {identity:?}");
         };
         assert_eq!(
-            *raw.identity_details[&Text::from(Str::from("name"))],
+            *raw.identity_details[&Str::from("name")],
             Variant::from("operator")
         );
 
@@ -285,7 +282,7 @@ mod tests {
             panic!("expected the identity to be kept as it arrived, got {identity:?}");
         };
         assert_eq!(
-            *raw.identity_details[&Text::from(Str::from("uid"))],
+            *raw.identity_details[&Str::from("uid")],
             Variant::from("not a uid")
         );
     }

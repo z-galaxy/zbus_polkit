@@ -1,9 +1,7 @@
 //! The details of a `unix-netgroup` identity.
 
 use serde::{Deserialize, Serialize};
-use zbus::{as_variant, Type};
-
-use crate::policykit1::text::Text;
+use zbus::{as_variant, Str, Type};
 
 /// The details of a `unix-netgroup` identity.
 // zbus's dict derives do not take a type with a lifetime, so this goes through serde's, which
@@ -13,5 +11,5 @@ use crate::policykit1::text::Text;
 pub(super) struct UnixNetgroup<'a> {
     /// The netgroup's name, as NIS or `/etc/netgroup` knows it.
     #[serde(borrow, with = "as_variant")]
-    pub(super) name: Text<'a>,
+    pub(super) name: Str<'a>,
 }
