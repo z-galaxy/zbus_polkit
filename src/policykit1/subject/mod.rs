@@ -56,13 +56,15 @@ impl<'a> Subject<'a> {
     /// * `pidfd` - A pidfd for the process (from `pidfd_open(2)` or `SO_PEERPIDFD`). The subject
     ///   borrows it, or takes it over if it is an [`OwnedFd`](std::os::fd::OwnedFd).
     ///
-    /// * `uid` - The (real, not effective) uid of the owner of the process
-    pub fn new_for_owner(pidfd: impl Into<Fd<'a>>, uid: u32) -> Self {
+    /// * `uid` - The (real, not effective) uid of the owner of the process, as the signed 32-bit
+    ///   integer that polkit reads the uid of a process as, which a `u32` uid converts to with
+    ///   [`u32::cast_signed`].
+    pub fn new_for_owner(pidfd: impl Into<Fd<'a>>, uid: i32) -> Self {
         Self(Kind::UnixProcess(UnixProcess {
             pidfd: Some(pidfd.into()),
             pid: None,
             start_time: None,
-            uid: Some(uid as i32),
+            uid: Some(uid),
         }))
     }
 
@@ -77,23 +79,23 @@ impl<'a> Subject<'a> {
     ///
     /// * `start_time` - The start time for `pid` or `None` to look it up in e.g. `/proc`
     ///
-    /// * `uid` - The (real, not effective) uid of the owner of `pid` or `None` to look it up in
-    ///   e.g. `/proc`
-    pub fn new_for_pid(pid: u32, start_time: Option<u64>, uid: Option<u32>) -> Result<Self, Error> {
+    /// * `uid` - The (real, not effective) uid of the owner of `pid`, as
+    ///   [`new_for_owner`](Self::new_for_owner) takes it, or `None` to look it up in e.g. `/proc`
+    pub fn new_for_pid(pid: u32, start_time: Option<u64>, uid: Option<i32>) -> Result<Self, Error> {
         let start_time = match start_time {
             Some(s) => s,
             None => pid_start_time(pid)?,
         };
         let uid = match uid {
-            Some(u) => u,
-            None => pid_uid_racy(pid)?,
+            Some(uid) => uid,
+            None => pid_uid_racy(pid)?.cast_signed(),
         };
 
         Ok(Self(Kind::UnixProcess(UnixProcess {
             pidfd: None,
             pid: Some(pid),
             start_time: Some(start_time),
-            uid: Some(uid as i32),
+            uid: Some(uid),
         })))
     }
 
