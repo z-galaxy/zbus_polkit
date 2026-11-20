@@ -449,6 +449,14 @@ mod tests {
         };
         assert!(within(&encoded, &details.session_id));
 
+        let details = HashMap::from([("name", Variant::from(":1.42"))]);
+        let encoded = to_bytes(context, &("system-bus-name", details)).unwrap();
+        let bus_name: Subject<'_> = encoded.deserialize().unwrap().0;
+        let Kind::SystemBusName(details) = &bus_name.0 else {
+            panic!("expected a system-bus-name subject, got {bus_name:?}");
+        };
+        assert!(within(&encoded, details.name.as_str()));
+
         let details = HashMap::from([("name", Variant::from("engineering"))]);
         let encoded = to_bytes(context, &("unix-netgroup", details)).unwrap();
         let netgroup: Subject<'_> = encoded.deserialize().unwrap().0;
