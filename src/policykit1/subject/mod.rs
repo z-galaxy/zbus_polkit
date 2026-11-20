@@ -6,6 +6,7 @@ mod unix_session;
 
 use std::{
     collections::HashMap,
+    io,
     os::fd::{AsFd, BorrowedFd},
 };
 
@@ -181,6 +182,53 @@ impl<'a> Subject<'a> {
         Ok(Self(Kind::SystemBusName(SystemBusName {
             name: sender.clone(),
         })))
+    }
+
+    /// A copy of this subject, borrowing what this one borrows and sharing the text it owns.
+    ///
+    /// A pidfd that this subject owns is duplicated for the copy, as is a descriptor among the
+    /// details of a kind this crate doesn't know, which can fail with [`Error::Io`].
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        Ok(Self(match &self.0 {
+            Kind::UnixProcess(UnixProcess {
+                pidfd,
+                pid,
+                start_time,
+                uid,
+            }) => Kind::UnixProcess(UnixProcess {
+                pidfd: pidfd
+                    .as_ref()
+                    .map(|pidfd| match pidfd {
+                        Fd::Borrowed(pidfd) => Ok(Fd::Borrowed(*pidfd)),
+                        Fd::Owned(pidfd) => pidfd.try_clone().map(Fd::Owned),
+                    })
+                    .transpose()?,
+                pid: *pid,
+                start_time: *start_time,
+                uid: *uid,
+            }),
+            Kind::UnixSession(UnixSession { session_id }) => Kind::UnixSession(UnixSession {
+                session_id: session_id.clone(),
+            }),
+            Kind::SystemBusName(SystemBusName { name }) => {
+                Kind::SystemBusName(SystemBusName { name: name.clone() })
+            }
+            Kind::Other(Raw {
+                subject_kind,
+                subject_details,
+            }) => Kind::Other(Raw {
+                subject_kind: subject_kind.clone(),
+                subject_details: subject_details
+                    .iter()
+                    .map(|(key, value)| {
+                        // Cloning a value fails only where duplicating a descriptor in it does.
+                        let value = value.try_clone().map_err(io::Error::other)?;
+
+                        Ok((key.clone(), value))
+                    })
+                    .collect::<Result<_, Error>>()?,
+            }),
+        }))
     }
 
     /// This subject with all of its text and its pidfd owned, so that it borrows from nothing.
@@ -882,5 +930,68 @@ mod tests {
         assert_eq!(process.uid(), Some(1234));
         assert_eq!(process.pid(), None);
         assert_eq!(process.start_time(), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn subject_clone_borrows_a_borrowed_pidfd_and_duplicates_an_owned_one() {
+        use std::os::fd::{AsRawFd, OwnedFd};
+
+        let pidfd = std::fs::File::open("/dev/null").unwrap();
+        let borrowing = Subject::new_for_owner(&pidfd, 1234);
+        let clone = borrowing.try_clone().unwrap();
+        let Kind::UnixProcess(UnixProcess {
+            pidfd: Some(Fd::Borrowed(borrowed)),
+            ..
+        }) = &clone.0
+        else {
+            panic!("expected a borrowed pidfd, got {clone:?}");
+        };
+        assert_eq!(borrowed.as_raw_fd(), pidfd.as_raw_fd());
+        assert_eq!(clone.uid(), Some(1234));
+
+        // Each owner closes its own descriptor, so the clone gets one of its own.
+        let owning = Subject::new_for_owner(OwnedFd::from(pidfd), 1234);
+        let clone = owning.try_clone().unwrap();
+        let Kind::UnixProcess(UnixProcess {
+            pidfd: Some(Fd::Owned(duplicate)),
+            ..
+        }) = &clone.0
+        else {
+            panic!("expected an owned pidfd, got {clone:?}");
+        };
+        assert_ne!(duplicate.as_raw_fd(), owning.pidfd().unwrap().as_raw_fd());
+        assert_eq!(clone.uid(), Some(1234));
+    }
+
+    #[test]
+    fn subject_clone_shares_the_text() {
+        let session_id = String::from("c2");
+        let borrowing = Subject::new_for_unix_session(session_id.as_str());
+        let clone = borrowing.try_clone().unwrap();
+        assert!(std::ptr::eq(
+            clone.session_id().unwrap(),
+            session_id.as_str()
+        ));
+
+        let owning = Subject::new_for_unix_session(String::from("c2"));
+        let clone = owning.try_clone().unwrap();
+        assert!(std::ptr::eq(
+            clone.session_id().unwrap(),
+            owning.session_id().unwrap()
+        ));
+
+        let bus_name = received_as("system-bus-name", [("name", Variant::from(":1.42"))]);
+        let clone = bus_name.try_clone().unwrap();
+        assert!(std::ptr::eq(
+            clone.bus_name().unwrap().as_str(),
+            bus_name.bus_name().unwrap().as_str()
+        ));
+
+        // A kind this crate does not know is copied as it arrived.
+        let unknown = received_as("unix-netgroup", [("name", Variant::from("engineering"))]);
+        let (kind, sent) = sent_as(&unknown.try_clone().unwrap());
+        assert_eq!(kind, "unix-netgroup");
+        assert_eq!(*sent["name"], Variant::from("engineering"));
     }
 }
