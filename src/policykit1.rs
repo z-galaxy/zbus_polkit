@@ -239,10 +239,13 @@ assert_impl_all!(AuthorizationResult<'static>: DeserializeOwned);
 
 /// The errors polkit replies with, in the `org.freedesktop.PolicyKit1.Error` domain.
 ///
-/// A call on [`AuthorityProxy`] that the daemon refuses fails with one of these, and an
-/// authentication agent replies with one when an authentication does not end in success. A
-/// [`zbus::Error`] carrying a method error of this domain converts into the variant of its name;
-/// any other error lands in [`Error::ZBus`].
+/// An authentication agent replies with one of these when an authentication does not end in
+/// success, so a call on [`AuthenticationAgentProxy`] fails with one. A call on [`AuthorityProxy`]
+/// fails with a [`zbus::Error`], which converts into one of these: a method error of this domain
+/// into the variant of its name, and any other error into [`Error::ZBus`].
+///
+/// So a mechanism whose methods return this error passes the errors of the authority on to its own
+/// caller with `?`, under polkit's names, such as `org.freedesktop.PolicyKit1.Error.Failed`.
 ///
 /// polkit may add errors to its domain, which would be added here too, so a match on this enum has
 /// to leave room for more of them.
@@ -250,7 +253,7 @@ assert_impl_all!(AuthorizationResult<'static>: DeserializeOwned);
 #[zbus(prefix = "org.freedesktop.PolicyKit1.Error")]
 #[non_exhaustive]
 pub enum Error {
-    /// A D-Bus error outside the polkit domain.
+    /// A D-Bus error outside the polkit domain, or an error of zbus's own, such as an I/O error.
     #[zbus(error)]
     ZBus(zbus::Error),
 

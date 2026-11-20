@@ -9,8 +9,10 @@ use std::{collections::HashMap, fs::File};
 
 use futures_util::future;
 use zbus::{
-    connection, message::Message, object_server::InterfaceRef, Connection, Guid, OwnedVariant,
-    Variant,
+    connection,
+    message::Message,
+    object_server::{Interface, InterfaceRef},
+    Connection, Guid, OwnedVariant, Variant,
 };
 use zbus_polkit::policykit1::{
     ActionDescription, AuthorityFeatures, AuthorityProxy, AuthorizationResult,
@@ -74,22 +76,23 @@ async fn a_check_arrives_as_it_was_sent() {
     );
 }
 
+// A mechanism asks the authority in a method of its own before it acts. When that method returns
+// this crate's `Error`, `?` takes the authority's error into it, and the mechanism's own caller
+// gets the error under polkit's name.
 #[tokio::test]
-async fn a_refusal_reaches_the_caller_in_the_polkit_domain() {
+async fn an_error_of_the_authority_reaches_a_mechanisms_caller_in_the_polkit_domain() {
     let harness = Harness::new().await;
-    let proxy = harness.proxy().await;
+    let authority = AuthorityProxy::new(&harness.client).await.unwrap();
+    let (_mechanism, caller) = serve(MECHANISM_PATH, Mechanism { authority }).await;
+    let mechanism = MechanismProxy::new(&caller).await.unwrap();
 
-    let refused = proxy
-        .check_authorization(
-            &Subject::new_for_unix_session("c2"),
-            "org.zbus.Unknown",
-            &HashMap::new(),
-            CheckAuthorizationFlags::empty(),
-            "",
-        )
-        .await
-        .unwrap_err();
-
+    assert!(mechanism.may(ACTION_ID).await.unwrap());
+    let refused = mechanism.may("org.zbus.Unknown").await.unwrap_err();
+    let zbus::Error::MethodError(name, description, _) = &refused else {
+        panic!("expected a method error, got {refused:?}");
+    };
+    assert_eq!(name.as_str(), "org.freedesktop.PolicyKit1.Error.Failed");
+    assert_eq!(description.as_deref(), Some("no action org.zbus.Unknown"));
     assert_eq!(
         Error::from(refused),
         Error::Failed("no action org.zbus.Unknown".into())
@@ -193,6 +196,40 @@ async fn replies_come_back_as_they_were_sent() {
         proxy.backend_features().await.unwrap(),
         AuthorityFeatures::TEMPORARY_AUTHORIZATION
     );
+}
+
+/// A mechanism, as far as these tests need one: it asks the authority before it acts, and passes
+/// the authority's errors on to its own caller.
+struct Mechanism {
+    authority: AuthorityProxy<'static>,
+}
+
+#[zbus::interface(name = "org.zbus.Mechanism")]
+impl Mechanism {
+    /// Whether the caller may do `action_id`, as the authority has it.
+    async fn may(&self, action_id: &str) -> Result<bool, Error> {
+        let result = self
+            .authority
+            .check_authorization(
+                &Subject::new_for_unix_session("c2"),
+                action_id,
+                &HashMap::new(),
+                CheckAuthorizationFlags::empty(),
+                "",
+            )
+            .await?;
+
+        Ok(result.is_authorized)
+    }
+}
+
+#[zbus::proxy(
+    interface = "org.zbus.Mechanism",
+    default_service = "org.zbus.Mechanism",
+    default_path = "/org/zbus/Mechanism"
+)]
+trait Mechanism {
+    fn may(&self, action_id: &str) -> zbus::Result<bool>;
 }
 
 /// A polkit implementation, as far as these tests need one: it keeps what the calls brought, and
@@ -404,19 +441,7 @@ struct Harness {
 
 impl Harness {
     async fn new() -> Self {
-        let (server_stream, client_stream) = std::os::unix::net::UnixStream::pair().unwrap();
-        let server = connection::Builder::unix_stream(server_stream)
-            .server(Guid::generate())
-            .p2p()
-            .serve_at(AUTHORITY_PATH, Authority::new())
-            .build();
-        let client = connection::Builder::unix_stream(client_stream)
-            .p2p()
-            .build();
-        // Both ends have to make progress for the peer-to-peer handshake to finish.
-        let (server, client) = future::try_join(server, client)
-            .await
-            .expect("p2p handshake");
+        let (server, client) = serve(AUTHORITY_PATH, Authority::new()).await;
 
         Self { server, client }
     }
@@ -436,9 +461,31 @@ impl Harness {
     }
 }
 
+/// `interface`, served at `path` on one end of a socket pair, and a connection to it on the other,
+/// in that order.
+async fn serve<I>(path: &str, interface: I) -> (Connection, Connection)
+where
+    I: Interface,
+{
+    let (server_stream, client_stream) = std::os::unix::net::UnixStream::pair().unwrap();
+    let server = connection::Builder::unix_stream(server_stream)
+        .server(Guid::generate())
+        .p2p()
+        .serve_at(path, interface)
+        .build();
+    let client = connection::Builder::unix_stream(client_stream)
+        .p2p()
+        .build();
+    // Both ends have to make progress for the peer-to-peer handshake to finish.
+    future::try_join(server, client)
+        .await
+        .expect("p2p handshake")
+}
+
 const ACTION_ID: &str = "org.zbus.BeAwesome";
 const DESCRIPTION: &str = "Be awesome";
 const MESSAGE: &str = "Authentication is required to be awesome";
 const TEMPORARY_AUTHORIZATION_ID: &str = "tmp-1";
 const AUTHORITY_PATH: &str = "/org/freedesktop/PolicyKit1/Authority";
 const AGENT_PATH: &str = "/org/freedesktop/PolicyKit1/AuthenticationAgent";
+const MECHANISM_PATH: &str = "/org/zbus/Mechanism";
