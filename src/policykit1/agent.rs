@@ -56,8 +56,9 @@ use std::{
     task::{Poll, Waker},
 };
 
+use serde::{Deserialize, Serialize};
 use static_assertions::assert_impl_all;
-use zbus::Str;
+use zbus::{Str, Type};
 
 use super::{Error, Identity};
 
@@ -158,25 +159,33 @@ impl<H: Handler> Handler for Arc<H> {
 /// It borrows its text from the daemon's call, which lasts for as long as
 /// [`Handler::begin_authentication`] runs. [`into_owned`](Self::into_owned) is for a request that
 /// has to go further than that, to another task or thread.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// It serializes as a struct of those arguments, under the names polkit gives them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 pub struct Request<'a> {
     /// The action the user is authenticating for.
+    #[serde(borrow)]
     pub action_id: Str<'a>,
 
     /// The message to show the user, in the locale the agent registered with.
+    #[serde(borrow)]
     pub message: Str<'a>,
 
     /// The name of an icon to show with the message, or empty for none.
+    #[serde(borrow)]
     pub icon_name: Str<'a>,
 
     /// The details the mechanism gave `CheckAuthorization()`, plus what the daemon adds.
+    #[serde(borrow)]
     pub details: HashMap<Str<'a>, Str<'a>>,
 
     /// What names this authentication to the daemon; the helper reports with it.
+    #[serde(borrow)]
     pub cookie: Str<'a>,
 
     /// Who may authenticate for the action. The user picks one of these, or the agent picks for
     /// them.
+    #[serde(borrow)]
     pub identities: Vec<Identity<'a>>,
 }
 
@@ -332,7 +341,10 @@ const EARLY_CANCELLATIONS: usize = 64;
 
 #[cfg(test)]
 mod tests {
-    use zbus::object_server::Interface;
+    use zbus::{
+        object_server::Interface,
+        wire::{serialized::Context, to_bytes, LE},
+    };
 
     use super::*;
 
@@ -342,6 +354,58 @@ mod tests {
             Agent::<Declining>::name().as_str(),
             "org.freedesktop.PolicyKit1.AuthenticationAgent"
         );
+    }
+
+    // A service can hand a request over to its next instance in zbus's own format, which carries
+    // the descriptors that the rest of what it hands over may hold.
+    #[test]
+    fn request_round_trips_through_the_wire_format() {
+        assert_eq!(Request::SIGNATURE.to_string(), "(sssa{ss}sa(sa{sv}))");
+
+        let request = Request {
+            action_id: "org.zbus.BeAwesome".into(),
+            message: "Authentication is required to be awesome".into(),
+            icon_name: "security-high".into(),
+            details: HashMap::from([("polkit.caller-pid".into(), "4242".into())]),
+            cookie: "cookie-1".into(),
+            identities: vec![Identity::new_for_unix_user(1000)],
+        };
+        let encoded = to_bytes(Context::new(LE, 0), &request).unwrap();
+        let decoded: Request<'_> = encoded.deserialize().unwrap().0;
+        assert_eq!(decoded, request);
+        // Decoded, the text is the encoding's own, not a copy of it.
+        let within = |text: &str| encoded.as_ptr_range().contains(&text.as_ptr());
+        assert!(within(&decoded.action_id) && within(&decoded.cookie));
+        assert!(decoded
+            .details
+            .iter()
+            .all(|(key, value)| within(key) && within(value)));
+    }
+
+    // `from_str` lends the strings it does not have to unescape, and a `Value` lends none, so both
+    // are tried.
+    #[test]
+    fn request_round_trips_through_a_self_describing_format() {
+        let request = Request {
+            action_id: "org.zbus.BeAwesome".into(),
+            message: "Authenticate to be \"awesome\"".into(),
+            icon_name: "".into(),
+            details: HashMap::from([("polkit.caller-pid".into(), "4242".into())]),
+            cookie: "cookie-1".into(),
+            identities: vec![
+                Identity::new_for_unix_user(1000),
+                Identity::new_for_unix_netgroup("admins"),
+            ],
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        let back: Request<'_> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, request);
+        // The text that needed no unescaping is the input's own, not a copy of it.
+        let action_id = back.action_id.as_borrowed().unwrap();
+        assert!(json.as_bytes().as_ptr_range().contains(&action_id.as_ptr()));
+        let value = serde_json::to_value(&request).unwrap();
+        assert_eq!(Request::deserialize(value).unwrap(), request);
     }
 
     struct Declining;
