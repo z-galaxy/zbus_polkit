@@ -460,7 +460,8 @@ pub trait AuthenticationAgent {
     ///
     /// * `icon_name` - The name of an icon to show with it, or empty for none.
     ///
-    /// * `details` - The details given to `CheckAuthorization()`, plus what the daemon adds.
+    /// * `details` - The details given to `CheckAuthorization()`, plus what the daemon adds, as an
+    ///   agent's `Request` holds them.
     ///
     /// * `cookie` - What names this authentication to the daemon.
     ///
@@ -470,7 +471,7 @@ pub trait AuthenticationAgent {
         action_id: &str,
         message: &str,
         icon_name: &str,
-        details: &HashMap<&str, &str>,
+        details: &HashMap<Str<'_>, Str<'_>>,
         cookie: &str,
         identities: &[Identity<'_>],
     ) -> Result<(), Error>;

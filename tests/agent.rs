@@ -25,7 +25,7 @@ async fn begin_authentication_arrives_typed_and_waits_for_the_handler() {
                     "org.zbus.BeAwesome",
                     "Authentication is required to be awesome",
                     "security-high",
-                    &HashMap::from([("polkit.caller-pid", "4242")]),
+                    &HashMap::from([("polkit.caller-pid".into(), "4242".into())]),
                     "cookie-1",
                     &[
                         Identity::new_for_unix_user(1000),
@@ -60,6 +60,47 @@ async fn begin_authentication_arrives_typed_and_waits_for_the_handler() {
 
     // The daemon's call is answered by the handler, and not before.
     assert!(!call.is_finished());
+    outcome.send(Ok(())).unwrap();
+    call.await
+        .unwrap()
+        .expect("a successful authentication is an empty reply");
+}
+
+// A daemon that keeps what it asks of an agent as a `Request`, as it may to hand it over to its
+// next instance, sends each of its fields through the proxy as it is.
+#[tokio::test]
+async fn a_kept_request_is_sent_as_it_is() {
+    let mut harness = Harness::new().await;
+    let kept = Request {
+        action_id: "org.zbus.BeAwesome".into(),
+        message: "Authentication is required to be awesome".into(),
+        icon_name: "security-high".into(),
+        details: HashMap::from([("polkit.caller-pid".into(), "4242".into())]),
+        cookie: "cookie-4".into(),
+        identities: vec![Identity::new_for_unix_user(1000)],
+    };
+
+    let call = tokio::spawn({
+        let proxy = harness.proxy.clone();
+        let kept = kept.clone();
+        async move {
+            proxy
+                .begin_authentication(
+                    &kept.action_id,
+                    &kept.message,
+                    &kept.icon_name,
+                    &kept.details,
+                    &kept.cookie,
+                    &kept.identities,
+                )
+                .await
+        }
+    });
+
+    let Begun {
+        request, outcome, ..
+    } = harness.begun.recv().await.unwrap();
+    assert_eq!(request, kept);
     outcome.send(Ok(())).unwrap();
     call.await
         .unwrap()
