@@ -243,8 +243,12 @@ assert_impl_all!(AuthorizationResult<'static>: DeserializeOwned);
 /// authentication agent replies with one when an authentication does not end in success. A
 /// [`zbus::Error`] carrying a method error of this domain converts into the variant of its name;
 /// any other error lands in [`Error::ZBus`].
+///
+/// polkit may add errors to its domain, which would be added here too, so a match on this enum has
+/// to leave room for more of them.
 #[derive(Debug, PartialEq, zbus::DBusError)]
 #[zbus(prefix = "org.freedesktop.PolicyKit1.Error")]
+#[non_exhaustive]
 pub enum Error {
     /// A D-Bus error outside the polkit domain.
     #[zbus(error)]
