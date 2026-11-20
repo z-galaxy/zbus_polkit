@@ -439,11 +439,11 @@ pub trait Authority {
 
     /// The name of the currently used Authority backend.
     #[zbus(property)]
-    fn backend_name(&self) -> fdo::Result<String>;
+    fn backend_name(&self) -> fdo::Result<Box<str>>;
 
     /// The version of the currently used Authority backend.
     #[zbus(property)]
-    fn backend_version(&self) -> fdo::Result<String>;
+    fn backend_version(&self) -> fdo::Result<Box<str>>;
 }
 
 assert_impl_all!(AuthorityProxy<'_>: Send, Sync, Unpin);
