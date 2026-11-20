@@ -19,9 +19,6 @@ pub enum Error {
     /// Carries the name of the field that could not be found in it.
     MalformedSlashProc(&'static str),
 
-    /// Could not retrieve/deserialize sender header of the message.
-    BadSender(zbus::Error),
-
     /// Missing sender header in the message.
     MissingSender,
 }
@@ -46,7 +43,6 @@ impl std::error::Error for Error {
             Error::Io(e) => Some(e),
             Error::ParseInt(e) => Some(e),
             Error::MalformedSlashProc(_) => None,
-            Error::BadSender(e) => Some(e),
             Error::MissingSender => None,
         }
     }
@@ -58,7 +54,6 @@ impl Display for Error {
             Error::Io(e) => e.fmt(f),
             Error::ParseInt(e) => e.fmt(f),
             Error::MalformedSlashProc(field) => write!(f, "could not read {field} from /proc"),
-            Error::BadSender(e) => e.fmt(f),
             Error::MissingSender => write!(f, "sender header field missing in the message",),
         }
     }
