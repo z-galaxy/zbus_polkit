@@ -49,21 +49,15 @@
 //! ```
 
 use std::{
-    borrow::Cow,
     collections::{HashMap, VecDeque},
-    fmt,
     future::{poll_fn, Future},
     pin::pin,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     task::{Poll, Waker},
 };
 
-use serde::{
-    de::{MapAccess, Visitor},
-    Deserialize, Deserializer,
-};
 use static_assertions::assert_impl_all;
-use zbus::{Signature, Type};
+use zbus::Str;
 
 use super::{Error, Identity};
 
@@ -98,7 +92,7 @@ impl<H: Handler> Agent<H> {
         action_id: &str,
         message: &str,
         icon_name: &str,
-        details: Details<'_>,
+        details: HashMap<Str<'_>, Str<'_>>,
         cookie: &str,
         identities: Vec<Identity<'_>>,
     ) -> Result<(), Error> {
@@ -107,7 +101,7 @@ impl<H: Handler> Agent<H> {
             action_id: action_id.into(),
             message: message.into(),
             icon_name: icon_name.into(),
-            details: details.0,
+            details,
             cookie: cookie.into(),
             identities,
         };
@@ -167,19 +161,19 @@ impl<H: Handler> Handler for Arc<H> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Request<'a> {
     /// The action the user is authenticating for.
-    pub action_id: Cow<'a, str>,
+    pub action_id: Str<'a>,
 
     /// The message to show the user, in the locale the agent registered with.
-    pub message: Cow<'a, str>,
+    pub message: Str<'a>,
 
     /// The name of an icon to show with the message, or empty for none.
-    pub icon_name: Cow<'a, str>,
+    pub icon_name: Str<'a>,
 
     /// The details the mechanism gave `CheckAuthorization()`, plus what the daemon adds.
-    pub details: HashMap<Cow<'a, str>, Cow<'a, str>>,
+    pub details: HashMap<Str<'a>, Str<'a>>,
 
     /// What names this authentication to the daemon; the helper reports with it.
-    pub cookie: Cow<'a, str>,
+    pub cookie: Str<'a>,
 
     /// Who may authenticate for the action. The user picks one of these, or the agent picks for
     /// them.
@@ -189,20 +183,16 @@ pub struct Request<'a> {
 impl Request<'_> {
     /// This request with all of its text owned, so that it borrows from nothing.
     pub fn into_owned(self) -> Request<'static> {
-        fn owned(text: Cow<'_, str>) -> Cow<'static, str> {
-            text.into_owned().into()
-        }
-
         Request {
-            action_id: owned(self.action_id),
-            message: owned(self.message),
-            icon_name: owned(self.icon_name),
+            action_id: self.action_id.into_owned(),
+            message: self.message.into_owned(),
+            icon_name: self.icon_name.into_owned(),
             details: self
                 .details
                 .into_iter()
-                .map(|(key, value)| (owned(key), owned(value)))
+                .map(|(key, value)| (key.into_owned(), value.into_owned()))
                 .collect(),
-            cookie: owned(self.cookie),
+            cookie: self.cookie.into_owned(),
             identities: self
                 .identities
                 .into_iter()
@@ -213,39 +203,6 @@ impl Request<'_> {
 }
 
 assert_impl_all!(Request<'_>: Send, Sync, Unpin);
-
-/// The details of a `BeginAuthentication` call, decoded straight into the map a [`Request`] holds
-/// them in, borrowing every key and value from the call.
-struct Details<'a>(HashMap<Cow<'a, str>, Cow<'a, str>>);
-
-impl Type for Details<'_> {
-    const SIGNATURE: &'static Signature = <HashMap<&str, &str>>::SIGNATURE;
-}
-
-impl<'de> Deserialize<'de> for Details<'de> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct Entries;
-
-        impl<'de> Visitor<'de> for Entries {
-            type Value = Details<'de>;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a dictionary of strings")
-            }
-
-            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-                let mut details = HashMap::with_capacity(map.size_hint().unwrap_or(0));
-                while let Some((key, value)) = map.next_entry::<&str, &str>()? {
-                    details.insert(Cow::Borrowed(key), Cow::Borrowed(value));
-                }
-
-                Ok(Details(details))
-            }
-        }
-
-        deserializer.deserialize_map(Entries)
-    }
-}
 
 /// The object path agents conventionally serve at; polkit's own agents do.
 pub const OBJECT_PATH: &str = "/org/freedesktop/PolicyKit1/AuthenticationAgent";

@@ -3,7 +3,7 @@
 
 #![cfg(all(unix, feature = "agent"))]
 
-use std::{borrow::Cow, collections::HashMap, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use futures_util::future;
 use tokio::sync::{mpsc, oneshot};
@@ -176,13 +176,12 @@ async fn authentications_run_concurrently() {
     let first = begin("cookie-a");
     let second = begin("cookie-b");
 
-    let mut pending: HashMap<Cow<'static, str>, oneshot::Sender<Result<(), Error>>> =
-        HashMap::new();
+    let mut pending: HashMap<String, oneshot::Sender<Result<(), Error>>> = HashMap::new();
     for _ in 0..2 {
         let Begun {
             request, outcome, ..
         } = harness.begun.recv().await.unwrap();
-        pending.insert(request.cookie, outcome);
+        pending.insert(request.cookie.into(), outcome);
     }
     assert!(!first.is_finished() && !second.is_finished());
 
@@ -287,12 +286,21 @@ struct Begun {
 impl Handler for Relay {
     async fn begin_authentication(&self, request: Request<'_>) -> Result<(), Error> {
         let (outcome, decided) = oneshot::channel();
+        let texts = [
+            &request.action_id,
+            &request.message,
+            &request.icon_name,
+            &request.cookie,
+        ];
+        let details = request.details.iter().flat_map(|(key, value)| [key, value]);
+        let borrowed = texts
+            .into_iter()
+            .chain(details)
+            .all(|text| text.as_borrowed().is_some());
+
         self.begun
             .send(Begun {
-                borrowed: matches!(request.action_id, Cow::Borrowed(_))
-                    && request.details.iter().all(|(key, value)| {
-                        matches!((key, value), (Cow::Borrowed(_), Cow::Borrowed(_)))
-                    }),
+                borrowed,
                 request: request.into_owned(),
                 outcome,
             })
