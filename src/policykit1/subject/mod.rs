@@ -4,11 +4,14 @@ mod system_bus_name;
 mod unix_process;
 mod unix_session;
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    os::fd::{AsFd, BorrowedFd},
+};
 
 use serde::{Deserialize, Serialize};
 use static_assertions::assert_impl_all;
-use zbus::{Fd, OwnedVariant, Str, Type};
+use zbus::{names::UniqueName, Fd, OwnedVariant, Str, Type};
 
 use self::{system_bus_name::SystemBusName, unix_process::UnixProcess, unix_session::UnixSession};
 use crate::Error;
@@ -40,6 +43,59 @@ impl<'a> Subject<'a> {
             Kind::UnixSession(_) => UNIX_SESSION,
             Kind::SystemBusName(_) => SYSTEM_BUS_NAME,
             Kind::Other(raw) => &raw.subject_kind,
+        }
+    }
+
+    /// The pidfd of the process, if this is a `unix-process` subject with one.
+    pub fn pidfd(&self) -> Option<BorrowedFd<'_>> {
+        match &self.0 {
+            Kind::UnixProcess(process) => process.pidfd.as_ref().map(AsFd::as_fd),
+            _ => None,
+        }
+    }
+
+    /// The process ID, if this is a `unix-process` subject with one.
+    pub fn pid(&self) -> Option<u32> {
+        match &self.0 {
+            Kind::UnixProcess(process) => process.pid,
+            _ => None,
+        }
+    }
+
+    /// The start time of the process, in clock ticks since boot, if this is a `unix-process`
+    /// subject with one.
+    pub fn start_time(&self) -> Option<u64> {
+        match &self.0 {
+            Kind::UnixProcess(process) => process.start_time,
+            _ => None,
+        }
+    }
+
+    /// The (real, not effective) uid of the owner of the process, if this is a `unix-process`
+    /// subject with one.
+    ///
+    /// It's a signed 32-bit integer, as polkit sends and reads the uid of a process, and as the
+    /// constructors take it.
+    pub fn uid(&self) -> Option<i32> {
+        match &self.0 {
+            Kind::UnixProcess(process) => process.uid,
+            _ => None,
+        }
+    }
+
+    /// The ID of the session, if this is a `unix-session` subject.
+    pub fn session_id(&self) -> Option<&str> {
+        match &self.0 {
+            Kind::UnixSession(session) => Some(&session.session_id),
+            _ => None,
+        }
+    }
+
+    /// The unique name of the connection, if this is a `system-bus-name` subject.
+    pub fn bus_name(&self) -> Option<&UniqueName<'a>> {
+        match &self.0 {
+            Kind::SystemBusName(bus_name) => Some(&bus_name.name),
+            _ => None,
         }
     }
 
@@ -767,5 +823,64 @@ mod tests {
 
         let err = Subject::new_for_message_header(&msg.header()).unwrap_err();
         assert!(matches!(err, Error::MissingSender), "{err:?}");
+    }
+
+    #[test]
+    fn subject_accessors_read_the_details_of_its_kind() {
+        let process = received_as(
+            "unix-process",
+            [
+                ("pid", Variant::U32(4242)),
+                ("start-time", Variant::U64(7)),
+                ("uid", Variant::I32(1234)),
+            ],
+        );
+        assert_eq!(process.pid(), Some(4242));
+        assert_eq!(process.start_time(), Some(7));
+        assert_eq!(process.uid(), Some(1234));
+        assert!(process.pidfd().is_none());
+        assert_eq!(process.session_id(), None);
+        assert_eq!(process.bus_name(), None);
+
+        let session = received_as("unix-session", [("session-id", Variant::from("c2"))]);
+        assert_eq!(session.session_id(), Some("c2"));
+        assert_eq!(session.pid(), None);
+        assert_eq!(session.uid(), None);
+        assert_eq!(session.bus_name(), None);
+
+        let bus_name = received_as("system-bus-name", [("name", Variant::from(":1.42"))]);
+        assert_eq!(bus_name.bus_name().map(UniqueName::as_str), Some(":1.42"));
+        assert_eq!(bus_name.pid(), None);
+        assert_eq!(bus_name.session_id(), None);
+
+        let netgroup = received_as("unix-netgroup", [("name", Variant::from("engineering"))]);
+        assert_eq!(netgroup.pid(), None);
+        assert_eq!(netgroup.session_id(), None);
+        assert_eq!(netgroup.bus_name(), None);
+
+        // Sent as a known kind whose details don't decode as that kind's, a subject is kept as it
+        // arrived, and has none of them either.
+        let unnamed = received_as(
+            "system-bus-name",
+            [("name", Variant::from("not a unique name"))],
+        );
+        assert_eq!(unnamed.kind(), "system-bus-name");
+        assert_eq!(unnamed.bus_name(), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn subject_accessors_read_the_pidfd_it_holds() {
+        use std::os::fd::AsRawFd;
+
+        let pidfd = std::fs::File::open("/dev/null").unwrap();
+        let process = Subject::new_for_owner(&pidfd, 1234);
+        assert_eq!(
+            process.pidfd().map(|pidfd| pidfd.as_raw_fd()),
+            Some(pidfd.as_raw_fd())
+        );
+        assert_eq!(process.uid(), Some(1234));
+        assert_eq!(process.pid(), None);
+        assert_eq!(process.start_time(), None);
     }
 }
