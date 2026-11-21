@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 7.0.0 - 2026-11-21
+
+### ✨ Added
+- Be an authentication agent, with the new agent feature, on by default: policykit1::agent::Agent
+  serves the AuthenticationAgent interface, and hands each of the daemon's requests to a Handler,
+  as a Request that borrows its text and (de)serializes. #111
+- Add AuthenticationAgentProxy, to call an agent as the daemon does. It takes the details as a
+  Request holds them, and fails with policykit1::Error.
+- Add policykit1::Error, polkit's org.freedesktop.PolicyKit1.Error domain, which a zbus::Error
+  converts into: a mechanism whose methods return it passes polkit's errors on under their names.
+- Add Subject::new_for_unix_session.
+- Add accessors for the details of each kind of Subject.
+- Add Subject::try_clone, to copy a subject.
+- Make ActionDescription and AuthorizationResult Clone, PartialEq and Eq, and ImplicitAuthorization
+  Clone and Hash.
+
+### 💥 Breaking
+- Make Identity typed and decodable, with a constructor and an accessor for each kind of identity
+  in place of its public fields.
+- Let Subject borrow its text and pidfd, with a lifetime. Subject::new_for_owner takes anything
+  that converts into a zbus Fd, and no longer fails. #131
+- Take the uid of a process Subject as the i32 that polkit reads.
+- Hold the text of polkit's replies as Str, for services to borrow: TemporaryAuthorization,
+  ActionDescription and AuthorizationResult take a lifetime, 'static where AuthorityProxy returns
+  them.
+- Make ImplicitAuthorization Copy. A closure that takes one by value now borrows it unless it is a
+  move closure, so one that outlives the value needs move.
+- Return the authority's backend name and version as Box<str>, not String.
+- Remove the BadSender variant of zbus_polkit::Error, which nothing returns.
+
+### 👷 CI
+- Add a workflow to release with release-plz.
+
+### 📦 Dependencies
+- Require zbus 6.5, whose fdo::Error passes polkit's errors on under their names too, and whose
+  Str decodes strings that it can't borrow.
+- Require zcheapstr 1.4, to look Str keys up by &str.
+
 ## 6.0.0 - 2026-10-20
 
 ### 💥 Breaking
