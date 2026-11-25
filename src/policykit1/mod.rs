@@ -43,6 +43,12 @@ bitflags::bitflags! {
         /// authentication agent is available, then attempt to do so. Note, this means that the
         /// CheckAuthorization() method will block while the user is being asked to authenticate.
         const ALLOW_USER_INTERACTION = 0x01;
+        /// Check the authorization even for the root user. Without this flag, the authority
+        /// authorizes a root Subject outright, without checking the policy.
+        ///
+        /// Polkit honours this flag since version 125. Older versions ignore it and authorize a
+        /// root Subject regardless, so the flag has no effect on them.
+        const ALWAYS_CHECK = 0x02;
     }
 }
 
@@ -777,6 +783,19 @@ mod tests {
             CheckAuthorizationFlags::empty()
         );
         assert_eq!(AuthorityFeatures::default(), AuthorityFeatures::empty());
+    }
+
+    #[test]
+    fn always_check_is_polkits_second_flag() {
+        assert_eq!(CheckAuthorizationFlags::ALWAYS_CHECK.bits(), 2);
+        assert_eq!(
+            format!(
+                "{:?}",
+                CheckAuthorizationFlags::ALLOW_USER_INTERACTION
+                    | CheckAuthorizationFlags::ALWAYS_CHECK
+            ),
+            "CheckAuthorizationFlags(ALLOW_USER_INTERACTION | ALWAYS_CHECK)"
+        );
     }
 
     #[test]
