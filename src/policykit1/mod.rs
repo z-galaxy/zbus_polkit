@@ -313,6 +313,25 @@ pub trait Authority {
         identity: &Identity<'_>,
     ) -> zbus::Result<()>;
 
+    /// Method for authentication agents to invoke on successful authentication, intended only for
+    /// use by a privileged helper process internal to polkit. This method will fail unless a
+    /// sufficiently privileged caller invokes it. It's what polkit's socket-activated
+    /// authentication agent helper calls, since polkit 127.
+    ///
+    /// # Arguments
+    ///
+    /// * `cookie` - The cookie that identifies the authentication.
+    /// * `identity` - The identity that was authenticated.
+    /// * `subject` - The authentication agent's process, as a `unix-process` subject with a pidfd,
+    ///   as [`Subject::new_for_owner`] makes it. The authority refuses the call with any other
+    ///   subject.
+    fn authentication_agent_response3(
+        &self,
+        cookie: &str,
+        identity: &Identity<'_>,
+        subject: &Subject<'_>,
+    ) -> zbus::Result<()>;
+
     /// Cancels an authorization check.
     ///
     /// # Arguments

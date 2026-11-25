@@ -165,6 +165,37 @@ async fn helper_responses_arrive_with_their_identity() {
 }
 
 #[tokio::test]
+async fn a_socket_activated_helper_responds_with_its_agents_process() {
+    let harness = Harness::new().await;
+    let proxy = harness.proxy().await;
+    let pid = rustix::process::getpid();
+    let pidfd = rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()).unwrap();
+
+    proxy
+        .authentication_agent_response3(
+            "cookie-3",
+            &Identity::new_for_unix_user(1001),
+            &Subject::new_for_owner(&pidfd, 1000),
+        )
+        .await
+        .unwrap();
+
+    let authority = harness.authority().await;
+    let authority = authority.get().await;
+    let [(cookie, identity)] = &authority.agent_responses[..] else {
+        panic!("expected one response, got {:?}", authority.agent_responses);
+    };
+    let [agent] = &authority.subjects[..] else {
+        panic!("expected one subject, got {:?}", authority.subjects);
+    };
+    assert_eq!(agent.kind(), "unix-process");
+    assert!(agent.pidfd().is_some());
+    assert_eq!(agent.uid(), Some(1000));
+    assert_eq!(cookie, "cookie-3");
+    assert_eq!(identity.uid(), Some(1001));
+}
+
+#[tokio::test]
 async fn replies_come_back_as_they_were_sent() {
     let harness = Harness::new().await;
     let proxy = harness.proxy().await;
@@ -262,6 +293,8 @@ struct Authority {
     options: HashMap<String, OwnedVariant>,
     /// The uid, where one came, the cookie and the identity of each helper's response.
     responses: Vec<(Option<u32>, String, Identity<'static>)>,
+    /// The cookie and the identity of each `AuthenticationAgentResponse3`.
+    agent_responses: Vec<(String, Identity<'static>)>,
 }
 
 impl Authority {
@@ -286,6 +319,7 @@ impl Authority {
             checks: Vec::new(),
             options: HashMap::new(),
             responses: Vec::new(),
+            agent_responses: Vec::new(),
         }
     }
 
@@ -419,6 +453,19 @@ impl Authority {
     ) {
         self.responses
             .push((Some(uid), cookie.into(), identity.into_owned()));
+    }
+
+    async fn authentication_agent_response3(
+        &mut self,
+        cookie: &str,
+        identity: Identity<'_>,
+        subject: Subject<'_>,
+    ) -> Result<(), Error> {
+        self.keep(subject)?;
+        self.agent_responses
+            .push((cookie.into(), identity.into_owned()));
+
+        Ok(())
     }
 
     #[zbus(property)]
