@@ -43,6 +43,12 @@ bitflags::bitflags! {
         /// authentication agent is available, then attempt to do so. Note, this means that the
         /// CheckAuthorization() method will block while the user is being asked to authenticate.
         const ALLOW_USER_INTERACTION = 0x01;
+        /// Check the authorization even for the root user. Without this flag, the authority
+        /// authorizes a root Subject outright, without checking the policy.
+        ///
+        /// Polkit honours this flag since version 125. Older versions ignore it and authorize a
+        /// root Subject regardless, so the flag has no effect on them.
+        const ALWAYS_CHECK = 0x02;
     }
 }
 
@@ -305,6 +311,25 @@ pub trait Authority {
         uid: u32,
         cookie: &str,
         identity: &Identity<'_>,
+    ) -> zbus::Result<()>;
+
+    /// Method for authentication agents to invoke on successful authentication, intended only for
+    /// use by a privileged helper process internal to polkit. This method will fail unless a
+    /// sufficiently privileged caller invokes it. It's what polkit's socket-activated
+    /// authentication agent helper calls, since polkit 127.
+    ///
+    /// # Arguments
+    ///
+    /// * `cookie` - The cookie that identifies the authentication.
+    /// * `identity` - The identity that was authenticated.
+    /// * `subject` - The authentication agent's process, as a `unix-process` subject with a pidfd,
+    ///   as [`Subject::new_for_owner`] makes it. The authority refuses the call with any other
+    ///   subject.
+    fn authentication_agent_response3(
+        &self,
+        cookie: &str,
+        identity: &Identity<'_>,
+        subject: &Subject<'_>,
     ) -> zbus::Result<()>;
 
     /// Cancels an authorization check.
@@ -777,6 +802,19 @@ mod tests {
             CheckAuthorizationFlags::empty()
         );
         assert_eq!(AuthorityFeatures::default(), AuthorityFeatures::empty());
+    }
+
+    #[test]
+    fn always_check_is_polkits_second_flag() {
+        assert_eq!(CheckAuthorizationFlags::ALWAYS_CHECK.bits(), 2);
+        assert_eq!(
+            format!(
+                "{:?}",
+                CheckAuthorizationFlags::ALLOW_USER_INTERACTION
+                    | CheckAuthorizationFlags::ALWAYS_CHECK
+            ),
+            "CheckAuthorizationFlags(ALLOW_USER_INTERACTION | ALWAYS_CHECK)"
+        );
     }
 
     #[test]
